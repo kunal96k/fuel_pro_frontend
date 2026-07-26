@@ -48,6 +48,9 @@ export interface UserAccount {
   role: string;
   phone: string;
   isActive: boolean;
+  isLocked?: boolean;
+  lastLoginAt?: string;
+  lastLoginIp?: string;
   permissionsJson?: string;
 }
 
@@ -68,6 +71,21 @@ export interface Vehicle {
   pucExpiry: string;
   status: string;
 }
+
+export interface Nozzle {
+  id?: string;
+  nozzleName: string;
+  fuelType: string;
+  connectedTank: string;
+}
+
+export interface MPD {
+  id: string;
+  mpdName: string;
+  numberOfNozzles: number;
+  nozzles: Nozzle[];
+}
+
 
 export interface PaginatedResponse<T> {
   content: T[];
@@ -109,6 +127,10 @@ export interface VehicleQueryParams extends BaseQueryParams {
   expiredInsurance?: boolean;
   expiredPuc?: boolean;
 }
+
+export interface MPDQueryParams extends BaseQueryParams {
+}
+
 
 export const API_BASE_URL = 'http://localhost:8080/api';
 
@@ -204,7 +226,11 @@ export async function updateTankApi(id: string, tankData: Omit<Tank, 'id'>): Pro
 
 export async function deleteTankApi(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/tanks/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to delete tank: ${res.statusText}`);
+  if (!res.ok) {
+    let msg = `Failed to delete tank (${res.status})`;
+    try { const body = await res.json(); msg = body.message || msg; } catch {}
+    throw new Error(msg);
+  }
 }
 
 // --- Product API ---
@@ -404,6 +430,9 @@ export async function fetchUsers(params: UserQueryParams = {}): Promise<Paginate
     role: item.role,
     phone: item.phone,
     isActive: Boolean(item.isActive),
+    isLocked: Boolean(item.isLocked),
+    lastLoginAt: item.lastLoginAt || null,
+    lastLoginIp: item.lastLoginIp || null,
     permissionsJson: item.permissionsJson,
   }));
 }
@@ -439,6 +468,28 @@ export async function updateUserApi(id: string, userData: Omit<UserAccount, 'id'
 export async function deleteUserApi(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/users/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to delete user: ${res.statusText}`);
+}
+
+export async function toggleUserLockApi(id: string): Promise<UserAccount> {
+  const res = await fetch(`${API_BASE_URL}/users/${id}/toggle-lock`, { method: 'PATCH' });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to toggle lock: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return { ...data, id: String(data.id) };
+}
+
+export async function resetUserPasswordApi(id: string, newPassword: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/users/${id}/reset-password`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to reset password: ${res.statusText}`);
+  }
 }
 
 // --- Vehicle API ---
@@ -508,6 +559,115 @@ export async function deleteVehicleApi(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/vehicles/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to delete vehicle: ${res.statusText}`);
 }
+
+// --- MPD API ---
+export async function fetchMpds(params: MPDQueryParams = {}): Promise<PaginatedResponse<MPD>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/mpds?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item) => ({
+    id: String(item.id),
+    mpdName: item.mpdName,
+    numberOfNozzles: Number(item.numberOfNozzles),
+    nozzles: (item.nozzles || []).map((n: any) => ({
+      id: String(n.id),
+      nozzleName: n.nozzleName,
+      fuelType: n.fuelType,
+      connectedTank: n.connectedTank
+    }))
+  }));
+}
+
+export async function fetchMpdsAll(): Promise<MPD[]> {
+  const res = await fetch(`${API_BASE_URL}/mpds/all`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return (data || []).map((item: any) => ({
+    id: String(item.id),
+    mpdName: item.mpdName,
+    numberOfNozzles: Number(item.numberOfNozzles),
+    nozzles: (item.nozzles || []).map((n: any) => ({
+      id: String(n.id),
+      nozzleName: n.nozzleName,
+      fuelType: n.fuelType,
+      connectedTank: n.connectedTank
+    }))
+  }));
+}
+
+export async function createMpdApi(mpdData: Omit<MPD, 'id'>): Promise<MPD> {
+  const res = await fetch(`${API_BASE_URL}/mpds`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mpdData),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create MPD: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return {
+    ...data,
+    id: String(data.id),
+    nozzles: (data.nozzles || []).map((n: any) => ({ ...n, id: String(n.id) }))
+  };
+}
+
+export async function updateMpdApi(id: string, mpdData: Omit<MPD, 'id'>): Promise<MPD> {
+  const res = await fetch(`${API_BASE_URL}/mpds/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mpdData),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update MPD: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return {
+    ...data,
+    id: String(data.id),
+    nozzles: (data.nozzles || []).map((n: any) => ({ ...n, id: String(n.id) }))
+  };
+}
+
+export async function deleteMpdApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/mpds/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete MPD: ${res.statusText}`);
+}
+
+
+// --- Shift Master API ---
+export interface ShiftMaster {
+  id: string;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  shiftType: string;
+  description?: string;
+}
+
+export async function fetchShiftsAll(): Promise<ShiftMaster[]> {
+  const res = await fetch(`${API_BASE_URL}/shifts/all`);
+  if (!res.ok) throw new Error(`Failed to fetch shift master: ${res.statusText}`);
+  const data = await res.json();
+  return (Array.isArray(data) ? data : []).map((item: any) => ({
+    id: String(item.id),
+    shiftName: item.shiftName,
+    startTime: item.startTime,
+    endTime: item.endTime,
+    shiftType: item.shiftType,
+    description: item.description
+  }));
+}
+
 
 // --- Employee Assignment API ---
 export interface EmployeeAssignment {
@@ -660,6 +820,7 @@ export async function checkAssignmentConflict(
 export interface CashCollectionRecord {
   id: string;
   date: string;
+  shift?: string;
   employeeId: string;
   employeeName: string;
   mpdId: string;
@@ -685,6 +846,7 @@ export interface CashCollectionStats {
 }
 
 export interface CashCollectionQueryParams extends BaseQueryParams {
+  shift?: string;
   fromDate?: string;
   toDate?: string;
 }
@@ -698,6 +860,7 @@ export async function fetchCashCollections(
   if (params.size !== undefined) query.set('size', String(params.size));
   if (params.search) query.set('search', params.search);
   if (params.status && params.status !== 'ALL') query.set('status', params.status);
+  if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
   if (params.sortBy) query.set('sortBy', params.sortBy);
@@ -709,6 +872,7 @@ export async function fetchCashCollections(
   return parsePaginatedResponse(data, (item: any) => ({
     id: String(item.id),
     date: item.date,
+    shift: item.shift || 'Morning Shift (06:00-14:00)',
     employeeId: String(item.employeeId),
     employeeName: item.employeeName,
     mpdId: item.mpdId,
@@ -728,11 +892,12 @@ export async function fetchCashCollections(
 }
 
 export async function fetchCashCollectionStats(
-  params: { search?: string; status?: string; fromDate?: string; toDate?: string } = {}
+  params: { search?: string; status?: string; shift?: string; fromDate?: string; toDate?: string } = {}
 ): Promise<CashCollectionStats> {
   const query = new URLSearchParams();
   if (params.search) query.set('search', params.search);
   if (params.status && params.status !== 'ALL') query.set('status', params.status);
+  if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
 

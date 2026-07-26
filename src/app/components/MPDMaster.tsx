@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { fetchProducts, fetchTanks, Product, Tank } from '../services/api';
+import { fetchProducts, fetchTanks, Product, Tank, fetchMpdsAll, createMpdApi, updateMpdApi, deleteMpdApi } from '../services/api';
 import { toast } from 'sonner';
 
 interface Nozzle {
@@ -23,34 +23,32 @@ interface MPD {
 }
 
 export function MPDMaster() {
-  const [mpds, setMpds] = useState<MPD[]>(() => {
-    try {
-      const stored = localStorage.getItem('mpds_data');
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
+  const [mpds, setMpds] = useState<MPD[]>([]);
   const [expandedMPDs, setExpandedMPDs] = useState<string[]>([]);
   const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
   const [tanks, setTanks] = useState<Tank[]>([]);
 
+  const loadAllData = async () => {
+    try {
+      const mpdRes = await fetchMpdsAll();
+      setMpds(mpdRes);
+
+      const prodRes = await fetchProducts({ size: 1000, category: 'Fuel' });
+      setFuelProducts(prodRes.content.filter(p => p.category?.toLowerCase() === 'fuel'));
+
+      const tankRes = await fetchTanks({ size: 1000 });
+      setTanks(tankRes.content);
+    } catch (err) {
+      console.error('Failed to load data in MPDMaster:', err);
+    }
+  };
+
   useEffect(() => {
-    const loadDependencies = async () => {
-      try {
-        const prodRes = await fetchProducts({ size: 1000, category: 'Fuel' });
-        setFuelProducts(prodRes.content.filter(p => p.category?.toLowerCase() === 'fuel'));
-        
-        const tankRes = await fetchTanks({ size: 1000 });
-        setTanks(tankRes.content);
-      } catch (err) {
-        console.error('Failed to load dependencies in MPDMaster:', err);
-      }
-    };
-    loadDependencies();
+    loadAllData();
   }, []);
 
-  // Persist + broadcast MPD list whenever it changes
+  // Broadcast MPD list whenever it changes
   useEffect(() => {
-    try { localStorage.setItem('mpds_data', JSON.stringify(mpds)); } catch {}
     (window as any).__mpds_data = mpds;
     window.dispatchEvent(new CustomEvent('mpds-updated', { detail: mpds }));
   }, [mpds]);
@@ -93,9 +91,15 @@ export function MPDMaster() {
     setShowAddDialog(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this MPD?')) {
-      setMpds(mpds.filter(mpd => mpd.id !== id));
+      try {
+        await deleteMpdApi(id);
+        toast.success('MPD deleted successfully!');
+        loadAllData();
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to delete MPD');
+      }
     }
   };
 
@@ -118,7 +122,6 @@ export function MPDMaster() {
         });
       }
     }
-
     setNozzleData(newNozzles);
   };
 
@@ -139,7 +142,7 @@ export function MPDMaster() {
     setNozzleData(updated);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.mpdName) {
       toast.error('Please enter MPD name');
       return;
@@ -147,7 +150,7 @@ export function MPDMaster() {
 
     const duplicate = mpds.find(
       m => m.mpdName.trim().toLowerCase() === formData.mpdName.trim().toLowerCase() &&
-      (!editingMPD || m.id !== editingMPD.id)
+        (!editingMPD || m.id !== editingMPD.id)
     );
     if (duplicate) {
       toast.warning(`MPD with name "${formData.mpdName}" already exists!`);
@@ -160,30 +163,35 @@ export function MPDMaster() {
       return;
     }
 
-    if (editingMPD) {
-      setMpds(mpds.map(mpd =>
-        mpd.id === editingMPD.id
-          ? {
-              ...mpd,
-              mpdName: formData.mpdName,
-              numberOfNozzles: parseInt(formData.numberOfNozzles),
-              nozzles: nozzleData,
-            }
-          : mpd
-      ));
-      toast.success('MPD updated successfully!');
-    } else {
-      const newMPD: MPD = {
-        id: Date.now().toString(),
-        mpdName: formData.mpdName,
-        numberOfNozzles: parseInt(formData.numberOfNozzles),
-        nozzles: nozzleData,
-      };
-      setMpds([...mpds, newMPD]);
-      toast.success('MPD created successfully!');
+    try {
+      if (editingMPD) {
+        await updateMpdApi(editingMPD.id, {
+          mpdName: formData.mpdName,
+          numberOfNozzles: parseInt(formData.numberOfNozzles),
+          nozzles: nozzleData.map(n => ({
+            nozzleName: n.nozzleName,
+            fuelType: n.fuelType,
+            connectedTank: n.connectedTank
+          })) as any
+        });
+        toast.success('MPD updated successfully!');
+      } else {
+        await createMpdApi({
+          mpdName: formData.mpdName,
+          numberOfNozzles: parseInt(formData.numberOfNozzles),
+          nozzles: nozzleData.map(n => ({
+            nozzleName: n.nozzleName,
+            fuelType: n.fuelType,
+            connectedTank: n.connectedTank
+          })) as any
+        });
+        toast.success('MPD created successfully!');
+      }
+      setShowAddDialog(false);
+      loadAllData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save MPD');
     }
-
-    setShowAddDialog(false);
   };
 
   return (
@@ -254,11 +262,10 @@ export function MPDMaster() {
                         <tr key={nozzle.id} className="hover:bg-muted/20 transition-colors">
                           <td className="p-4 font-medium">{nozzle.nozzleName}</td>
                           <td className="p-4">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              nozzle.fuelType === 'Petrol' ? 'bg-green-500/10 text-green-500' :
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${nozzle.fuelType === 'Petrol' ? 'bg-green-500/10 text-green-500' :
                               nozzle.fuelType === 'Diesel' ? 'bg-blue-500/10 text-blue-500' :
-                              'bg-purple-500/10 text-purple-500'
-                            }`}>
+                                'bg-purple-500/10 text-purple-500'
+                              }`}>
                               {nozzle.fuelType}
                             </span>
                           </td>

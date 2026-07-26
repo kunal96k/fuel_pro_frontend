@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { 
   TrendingUp, 
   Users, 
-  DollarSign, 
+  IndianRupee, 
   Mail, 
   Phone, 
   MessageSquare,
@@ -22,7 +22,7 @@ export function Dashboard() {
       value: '₹2,345,678',
       change: '+12.5%',
       trend: 'up',
-      icon: DollarSign
+      icon: IndianRupee
     },
     {
       title: 'Active Campaigns',

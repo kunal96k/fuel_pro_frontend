@@ -4,7 +4,7 @@ import {
   ShoppingCart, 
   TrendingUp,
   ClipboardList,
-  Receipt,
+  IndianRupee,
   FileText, 
   Workflow, 
   BarChart3, 
@@ -25,7 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { fetchShifts, Shift, fetchProducts, Product } from '../services/api';
+import { fetchShifts, Shift, fetchProducts, Product, fetchTanks, Tank } from '../services/api';
 import { toast } from 'sonner';
 
 interface SidebarProps {
@@ -87,7 +87,7 @@ const navigationItems = [
   {
     id: 'vouchers',
     label: 'Vouchers',
-    icon: Receipt,
+    icon: IndianRupee,
     iconColor: 'text-rose-500',
     children: [
       { id: 'expenses', label: 'Expenses' },
@@ -112,6 +112,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const [showFuelRateDialog, setShowFuelRateDialog] = useState(false);
   const [showTankDipDialog, setShowTankDipDialog] = useState(false);
   const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
+  const [tanks, setTanks] = useState<Tank[]>([]);
   
   // Helper to format date in IST (YYYY-MM-DD)
   const getISTDateString = (dateObj: Date = new Date()) => {
@@ -172,7 +173,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
     return () => clearInterval(timer);
   }, []);
 
-  // Load fuel products on mount
+  // Load fuel products and tanks on mount
   React.useEffect(() => {
     const loadFuelProducts = async () => {
       try {
@@ -182,7 +183,16 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
         console.error('Failed to load fuel products in sidebar:', err);
       }
     };
+    const loadTanksList = async () => {
+      try {
+        const response = await fetchTanks({ size: 100 });
+        setTanks(response.content);
+      } catch (err) {
+        console.error('Failed to load tanks in sidebar:', err);
+      }
+    };
     loadFuelProducts();
+    loadTanksList();
   }, []);
 
   // Fetch existing rates when rateDate or dialog visibility changes
@@ -367,7 +377,8 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
     const istHour = parseInt(istTime24.split(':')[0]);
 
     if (shifts.length > 0) {
-      const activeShift = shifts.find(s => isTimeInShift(istTime24, s.startTime, s.endTime));
+      // Find the shift matching current time; if none matches, default to the first shift in the list
+      const activeShift = shifts.find(s => isTimeInShift(istTime24, s.startTime, s.endTime)) || shifts[0];
       if (activeShift) {
         const formatTimeDisplay = (timeStr: string) => {
           if (!timeStr) return '-';
@@ -386,10 +397,10 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
       }
     }
 
-    // Fallback using current IST hour
-    if (istHour >= 6 && istHour < 14) return { name: 'Morning Shift', time: '6 AM - 2 PM', icon: Sun };
-    if (istHour >= 14 && istHour < 22) return { name: 'Afternoon Shift', time: '2 PM - 10 PM', icon: Sun };
-    return { name: 'Night Shift', time: '10 PM - 6 AM', icon: Moon };
+    // Fallback using current IST hour - ONLY if no shifts are present in database master data
+    if (istHour >= 6 && istHour < 14) return { name: 'Morning Shift', time: '06:00 AM - 02:00 PM', icon: Sun };
+    if (istHour >= 14 && istHour < 22) return { name: 'Afternoon Shift', time: '02:00 PM - 10:00 PM', icon: Sun };
+    return { name: 'Night Shift', time: '10:00 PM - 06:00 AM', icon: Moon };
   };
 
   const shift = getCurrentShift();
@@ -424,7 +435,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   };
 
   return (
-    <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col h-full overflow-y-auto shrink-0">
+    <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col h-full shrink-0">
       {/* Header */}
       <div className="p-6 border-b border-sidebar-border">
         <div className="flex items-center gap-3 mb-4">
@@ -474,7 +485,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-2">
           {navigationItems.map((item) => {
             const Icon = item.icon;
@@ -544,10 +555,10 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
-            <span className="text-sm">JD</span>
+            <span className="text-sm font-medium text-foreground">KP</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-sidebar-foreground truncate">John Doe</p>
+            <p className="text-sm text-sidebar-foreground truncate font-medium">Kunal Patil</p>
             <p className="text-xs text-muted-foreground">Admin</p>
           </div>
         </div>
@@ -634,18 +645,18 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
             <div className="border-t border-border pt-4 mt-2">
               <h4 className="font-medium mb-3 text-sm">Fuel Product Dips</h4>
               <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-                {fuelProducts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">No fuel products found. Add them in Product Master first.</p>
+                {tanks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No tanks found. Add them in Tank Master first.</p>
                 ) : (
-                  fuelProducts.map((product) => (
-                    <div key={product.id} className="grid gap-2">
-                      <Label htmlFor={`dip-${product.id}`}>{product.name} Tank (Litres)</Label>
+                  tanks.map((tank) => (
+                    <div key={tank.id} className="grid gap-2">
+                      <Label htmlFor={`dip-${tank.id}`}>{tank.tankName} ({tank.fuelType}) (Litres)</Label>
                       <Input
-                        id={`dip-${product.id}`}
+                        id={`dip-${tank.id}`}
                         type="number"
                         step="1"
-                        value={dipsInput[product.id] || ''}
-                        onChange={(e) => setDipsInput({ ...dipsInput, [product.id]: e.target.value })}
+                        value={dipsInput[tank.id || ''] || ''}
+                        onChange={(e) => setDipsInput({ ...dipsInput, [tank.id || '']: e.target.value })}
                         onWheel={(e) => e.currentTarget.blur()}
                         placeholder="Enter dip level"
                       />
@@ -663,7 +674,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
               <Button variant="outline" onClick={() => setShowTankDipDialog(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSaveDips} disabled={fuelProducts.length === 0}>
+              <Button onClick={handleSaveDips} disabled={tanks.length === 0}>
                 Update Dip
               </Button>
             </div>
@@ -805,7 +816,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
-                    <th className="p-3 text-left font-medium">Product</th>
+                    <th className="p-3 text-left font-medium">Tank</th>
                     <th className="p-3 text-left font-medium">Date</th>
                     <th className="p-3 text-right font-medium">Dip (L)</th>
                   </tr>
@@ -820,7 +831,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
                   ) : (
                     dipsLogData.map((log: any) => (
                       <tr key={log.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="p-3 font-medium">{log.product?.name || '-'}</td>
+                        <td className="p-3 font-medium">{log.tank?.tankName || log.product?.name || '-'}</td>
                         <td className="p-3 font-mono text-xs">{log.dipDate || '-'}</td>
                         <td className="p-3 text-right font-mono font-medium">{log.dipValue?.toLocaleString()} L</td>
                       </tr>

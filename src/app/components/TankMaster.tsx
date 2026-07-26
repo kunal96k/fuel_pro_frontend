@@ -123,10 +123,11 @@ export function TankMaster() {
     if (confirm('Are you sure you want to delete this tank?')) {
       try {
         await deleteTankApi(id);
-      } catch (err) {
-        console.warn('API delete failed, updating UI locally');
+        toast.success('Tank deleted successfully.');
+        loadTanks();
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to delete tank. Please try again.');
       }
-      loadTanks();
     }
   };
 

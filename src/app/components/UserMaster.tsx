@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, User, Shield, Eye, EyeOff, Search, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, User, Shield, Eye, EyeOff, Search, ArrowUpDown, ChevronLeft, ChevronRight, Lock, Unlock, KeyRound, LogIn, Globe } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Checkbox } from './ui/checkbox';
 import { toast } from 'sonner';
-import { fetchUsers, createUserApi, updateUserApi, deleteUserApi, UserAccount } from '../services/api';
+import { fetchUsers, createUserApi, updateUserApi, deleteUserApi, toggleUserLockApi, resetUserPasswordApi, UserAccount } from '../services/api';
 
 interface UserPermissions {
   master: {
@@ -58,6 +58,9 @@ interface UserData {
   role: string;
   phone: string;
   isActive: boolean;
+  isLocked: boolean;
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
   permissions: UserPermissions;
 }
 
@@ -91,6 +94,17 @@ export function UserMaster() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // View modal
+  const [viewingUser, setViewingUser] = useState<UserData | null>(null);
+  const [showViewDialog, setShowViewDialog] = useState(false);
+
+  // Reset password modal
+  const [resetPasswordUser, setResetPasswordUser] = useState<UserData | null>(null);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -122,6 +136,9 @@ export function UserMaster() {
         role: u.role,
         phone: u.phone,
         isActive: u.isActive,
+        isLocked: Boolean((u as any).isLocked),
+        lastLoginAt: (u as any).lastLoginAt || null,
+        lastLoginIp: (u as any).lastLoginIp || null,
         permissions: u.permissionsJson ? JSON.parse(u.permissionsJson) : DEFAULT_PERMISSIONS,
       }));
 
@@ -203,6 +220,46 @@ export function UserMaster() {
     }
   };
 
+  const handleView = (user: UserData) => {
+    setViewingUser(user);
+    setShowViewDialog(true);
+  };
+
+  const handleToggleLock = async (user: UserData) => {
+    const action = user.isLocked ? 'Unlock' : 'Lock';
+    if (!confirm(`${action} account for ${user.name}?`)) return;
+    try {
+      await toggleUserLockApi(user.id);
+      toast.success(`Account ${action.toLowerCase()}ed successfully`);
+      loadUsers();
+    } catch (err: any) {
+      toast.error(err.message || `Failed to ${action.toLowerCase()} account`);
+    }
+  };
+
+  const handleOpenResetPassword = (user: UserData) => {
+    setResetPasswordUser(user);
+    setNewPassword('');
+    setShowNewPassword(false);
+    setShowResetDialog(true);
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordUser) return;
+    if (!newPassword.trim() || newPassword.length < 6) {
+      toast.warning('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      await resetUserPasswordApi(resetPasswordUser.id, newPassword);
+      toast.success(`Password reset for ${resetPasswordUser.name}`);
+      setShowResetDialog(false);
+      loadUsers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reset password');
+    }
+  };
+
   const toggleUserStatus = async (user: UserData) => {
     try {
       await updateUserApi(user.id, {
@@ -250,6 +307,42 @@ export function UserMaster() {
       return;
     }
 
+    // --- Client-side uniqueness pre-checks ---
+    const currentId = editingUser?.id;
+
+    const duplicateUsername = users.find(
+      u => u.username.toLowerCase() === formData.username.trim().toLowerCase() && u.id !== currentId
+    );
+    if (duplicateUsername) {
+      toast.warning(`Username "${formData.username.trim()}" is already taken. Please choose a different username.`, {
+        duration: 4000,
+      });
+      return;
+    }
+
+    const duplicateEmail = users.find(
+      u => u.email.toLowerCase() === formData.email.trim().toLowerCase() && u.id !== currentId
+    );
+    if (duplicateEmail) {
+      toast.warning(`Email "${formData.email.trim()}" is already registered. Please use a different email address.`, {
+        duration: 4000,
+      });
+      return;
+    }
+
+    if (formData.phone.trim()) {
+      const duplicatePhone = users.find(
+        u => u.phone === formData.phone.trim() && u.id !== currentId
+      );
+      if (duplicatePhone) {
+        toast.warning(`Phone number "${formData.phone.trim()}" is already in use. Please enter a different number.`, {
+          duration: 4000,
+        });
+        return;
+      }
+    }
+    // --- End uniqueness checks ---
+
     const payload = {
       name: formData.name.trim(),
       username: formData.username.trim(),
@@ -271,9 +364,17 @@ export function UserMaster() {
       setShowAddDialog(false);
       loadUsers();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to save user account');
+      // Backend duplicate errors shown as warnings, not generic errors
+      const msg: string = err.message || 'Failed to save user account';
+      const isDuplicate = msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('already in use');
+      if (isDuplicate) {
+        toast.warning(msg, { duration: 4000 });
+      } else {
+        toast.error(msg);
+      }
     }
   };
+
 
   return (
     <div className="p-8">
@@ -420,7 +521,16 @@ export function UserMaster() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-1">
+                        {/* View */}
+                        <button
+                          onClick={() => handleView(user)}
+                          className="p-1.5 hover:bg-sky-500/10 rounded-lg transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4 text-sky-500" />
+                        </button>
+                        {/* Edit */}
                         <button
                           onClick={() => handleEdit(user)}
                           className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
@@ -428,6 +538,27 @@ export function UserMaster() {
                         >
                           <Pencil className="w-4 h-4 text-blue-500" />
                         </button>
+                        {/* Lock / Unlock */}
+                        <button
+                          onClick={() => handleToggleLock(user)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            user.isLocked
+                              ? 'hover:bg-amber-500/10 text-amber-500'
+                              : 'hover:bg-slate-500/10 text-slate-400'
+                          }`}
+                          title={user.isLocked ? 'Unlock Account' : 'Lock Account'}
+                        >
+                          {user.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        </button>
+                        {/* Reset Password */}
+                        <button
+                          onClick={() => handleOpenResetPassword(user)}
+                          className="p-1.5 hover:bg-purple-500/10 rounded-lg transition-colors"
+                          title="Reset Password"
+                        >
+                          <KeyRound className="w-4 h-4 text-purple-500" />
+                        </button>
+                        {/* Delete */}
                         <button
                           onClick={() => handleDelete(user.id)}
                           className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -574,6 +705,135 @@ export function UserMaster() {
             </Button>
             <Button onClick={handleSave}>
               {editingUser ? 'Update' : 'Add User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ── View Details Dialog ─────────────────────────────── */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="w-5 h-5 text-sky-500" />
+              User Details
+            </DialogTitle>
+            <DialogDescription>Full profile and session information</DialogDescription>
+          </DialogHeader>
+          {viewingUser && (
+            <div className="space-y-4 py-2">
+              {/* Profile header */}
+              <div className="flex items-center gap-4 p-4 bg-muted/40 rounded-xl border border-border">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary">
+                  {viewingUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <p className="font-semibold text-lg">{viewingUser.name}</p>
+                  <p className="text-sm text-muted-foreground font-mono">@{viewingUser.username}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                      viewingUser.role === 'Admin' ? 'bg-purple-500/10 text-purple-500' :
+                      viewingUser.role === 'Manager' ? 'bg-blue-500/10 text-blue-500' :
+                      'bg-green-500/10 text-green-500'
+                    }`}>
+                      <Shield className="w-3 h-3" />{viewingUser.role}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      viewingUser.isActive ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                    }`}>
+                      {viewingUser.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                    {viewingUser.isLocked && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500 flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Locked
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-muted/30 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Email</p>
+                  <p className="text-sm font-medium truncate">{viewingUser.email}</p>
+                </div>
+                <div className="p-3 bg-muted/30 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Phone</p>
+                  <p className="text-sm font-medium">{viewingUser.phone || '—'}</p>
+                </div>
+              </div>
+
+              {/* Last login */}
+              <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <LogIn className="w-3.5 h-3.5" /> Session Info
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Last Login</p>
+                    <p className="text-sm font-medium">
+                      {viewingUser.lastLoginAt && !viewingUser.lastLoginAt.startsWith('password_reset')
+                        ? new Date(viewingUser.lastLoginAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                        : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" /> IP Address</p>
+                    <p className="text-sm font-medium font-mono">{viewingUser.lastLoginIp || '—'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowViewDialog(false)}>Close</Button>
+            {viewingUser && (
+              <Button variant="outline" onClick={() => { setShowViewDialog(false); handleEdit(viewingUser); }}>
+                <Pencil className="w-4 h-4 mr-2" /> Edit
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reset Password Dialog ───────────────────────────── */}
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-purple-500" />
+              Reset Password
+            </DialogTitle>
+            <DialogDescription>
+              Set a new password for <strong>{resetPasswordUser?.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <div className="grid gap-2">
+              <Label htmlFor="new-password">New Password <span className="text-red-500">*</span></Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Password must be at least 6 characters long</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetDialog(false)}>Cancel</Button>
+            <Button onClick={handleResetPassword} className="bg-purple-600 hover:bg-purple-700">
+              <KeyRound className="w-4 h-4 mr-2" /> Reset Password
             </Button>
           </DialogFooter>
         </DialogContent>

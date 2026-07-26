@@ -43,13 +43,20 @@ import {
   Employee, 
   CashCollectionRecord, 
   CashCollectionStats,
-  API_BASE_URL 
+  API_BASE_URL,
+  fetchMpdsAll,
+  fetchShiftsAll,
+  fetchEmployeeAssignments,
+  ShiftMaster,
+  EmployeeAssignment
 } from '../services/api';
 import { toast } from 'sonner';
 
 export function CashCollection() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [mpds, setMpds] = useState<any[]>([]);
+  const [shifts, setShifts] = useState<ShiftMaster[]>([]);
+  const [dutyAssignments, setDutyAssignments] = useState<EmployeeAssignment[]>([]);
   const [records, setRecords] = useState<CashCollectionRecord[]>([]);
   const [stats, setStats] = useState<CashCollectionStats>({
     totalAmount: 0,
@@ -60,6 +67,7 @@ export function CashCollection() {
 
   const [loading, setLoading] = useState(false);
   const [loadingMaster, setLoadingMaster] = useState(false);
+  const [loadingDuty, setLoadingDuty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Pagination & Filtering
@@ -70,6 +78,7 @@ export function CashCollection() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [shiftFilter, setShiftFilter] = useState('ALL');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
   const [sortBy, setSortBy] = useState('date');
@@ -89,6 +98,8 @@ export function CashCollection() {
   // Form states
   const [formRecord, setFormRecord] = useState({
     date: new Date().toISOString().slice(0, 10),
+    shift: '',
+    shiftId: '',
     employeeId: '',
     mpdId: '',
     depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
@@ -115,32 +126,44 @@ export function CashCollection() {
     );
   };
 
-  // Load active master configurations (Employees + MPDs)
+  // Load active master configurations (Employees + MPDs + Real Shift Master)
   useEffect(() => {
     const loadMasters = async () => {
       setLoadingMaster(true);
       try {
-        const [empRes] = await Promise.all([
-          fetchEmployees({ size: 1000, status: 'Active' })
+        const [empRes, mpdRes, shiftRes] = await Promise.all([
+          fetchEmployees({ size: 1000, status: 'Active' }),
+          fetchMpdsAll(),
+          fetchShiftsAll()
         ]);
         setEmployees(empRes.content);
-        
-        // Read MPDs from localStorage
-        const stored = localStorage.getItem('mpds_data');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setMpds(parsed);
-          }
-        }
+        setMpds(mpdRes);
+        setShifts(shiftRes);
       } catch {
-        toast.error('Failed to load employee master lists');
+        toast.error('Failed to load employee, MPD, or shift master lists');
       } finally {
         setLoadingMaster(false);
       }
     };
     loadMasters();
   }, []);
+
+  // Fetch duty assignments for current date & shift whenever form date or shiftId changes
+  useEffect(() => {
+    if (!formRecord.date || !formRecord.shiftId) return;
+    const loadDuty = async () => {
+      setLoadingDuty(true);
+      try {
+        const dutyRes = await fetchEmployeeAssignments(formRecord.date, formRecord.shiftId);
+        setDutyAssignments(dutyRes);
+      } catch {
+        setDutyAssignments([]);
+      } finally {
+        setLoadingDuty(false);
+      }
+    };
+    loadDuty();
+  }, [formRecord.date, formRecord.shiftId]);
 
   // Fetch paginated collections + stats
   const loadData = useCallback(async () => {
@@ -152,6 +175,7 @@ export function CashCollection() {
           size: pageSize,
           search: searchTerm,
           status: statusFilter,
+          shift: shiftFilter,
           fromDate: fromDateFilter || undefined,
           toDate: toDateFilter || undefined,
           sortBy,
@@ -160,6 +184,7 @@ export function CashCollection() {
         fetchCashCollectionStats({
           search: searchTerm,
           status: statusFilter,
+          shift: shiftFilter,
           fromDate: fromDateFilter || undefined,
           toDate: toDateFilter || undefined
         })
@@ -174,7 +199,7 @@ export function CashCollection() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, statusFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
+  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
 
   // Trigger reload on filter/page/sort changes
   useEffect(() => {
@@ -219,6 +244,8 @@ export function CashCollection() {
     setActiveRecordId(null);
     setFormRecord({
       date: new Date().toISOString().slice(0, 10),
+      shift: '',
+      shiftId: '',
       employeeId: '',
       mpdId: '',
       depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
@@ -238,8 +265,11 @@ export function CashCollection() {
   const handleEditClick = (record: CashCollectionRecord) => {
     setModalMode('edit');
     setActiveRecordId(record.id);
+    const matchingShift = shifts.find(s => record.shift && record.shift.includes(s.shiftName));
     setFormRecord({
       date: record.date,
+      shift: record.shift || '',
+      shiftId: matchingShift ? matchingShift.id : '',
       employeeId: record.employeeId,
       mpdId: record.mpdId,
       depositTime: record.depositTime,
@@ -259,8 +289,11 @@ export function CashCollection() {
   const handleViewClick = (record: CashCollectionRecord) => {
     setModalMode('view');
     setActiveRecordId(record.id);
+    const matchingShift = shifts.find(s => record.shift && record.shift.includes(s.shiftName));
     setFormRecord({
       date: record.date,
+      shift: record.shift || '',
+      shiftId: matchingShift ? matchingShift.id : '',
       employeeId: record.employeeId,
       mpdId: record.mpdId,
       depositTime: record.depositTime,
@@ -310,12 +343,16 @@ export function CashCollection() {
   // Save or Update Entry
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formRecord.employeeId) {
-      toast.warning('Please select an employee');
+    if (!formRecord.shift) {
+      toast.warning('Please select an operational shift');
       return;
     }
     if (!formRecord.mpdId) {
-      toast.warning('Please select an MPD');
+      toast.warning('Please select an MPD dispenser');
+      return;
+    }
+    if (!formRecord.employeeId) {
+      toast.warning('Please select an assigned employee');
       return;
     }
 
@@ -324,6 +361,7 @@ export function CashCollection() {
 
     const payload = {
       date: formRecord.date,
+      shift: formRecord.shift,
       employeeId: formRecord.employeeId,
       employeeName: selectedEmp ? selectedEmp.name : '',
       mpdId: formRecord.mpdId,
@@ -358,13 +396,17 @@ export function CashCollection() {
     }
   };
 
-  // Select all checkboxes helper
+  // Select all checkboxes helper for current page
   const handleSelectAll = () => {
-    if (selectedIds.size === records.length) {
-      setSelectedIds(new Set());
+    const currentPageIds = records.map(r => r.id);
+    const allCurrentSelected = currentPageIds.every(id => selectedIds.has(id));
+    const newSelected = new Set(selectedIds);
+    if (allCurrentSelected) {
+      currentPageIds.forEach(id => newSelected.delete(id));
     } else {
-      setSelectedIds(new Set(records.map(r => r.id)));
+      currentPageIds.forEach(id => newSelected.add(id));
     }
+    setSelectedIds(newSelected);
   };
 
   // Select single row checkbox helper
@@ -584,20 +626,41 @@ export function CashCollection() {
     }
   };
 
-  const handleExportSelected = (format: 'csv' | 'excel' | 'pdf') => {
+  const handleExportSelected = async (format: 'csv' | 'excel' | 'pdf') => {
     if (selectedIds.size === 0) {
       toast.warning('Please select at least one record to export');
       return;
     }
-    const selectedData = records.filter(r => selectedIds.has(r.id));
-    if (format === 'csv') {
-      downloadCSV(selectedData);
-    } else if (format === 'excel') {
-      downloadXLS(selectedData);
-    } else if (format === 'pdf') {
-      downloadPDF(selectedData);
+    try {
+      // Fetch matching data across all pages to gather selected records across multi-page selection
+      const allRes = await fetchCashCollections({
+        size: 10000,
+        search: searchTerm,
+        status: statusFilter,
+        fromDate: fromDateFilter || undefined,
+        toDate: toDateFilter || undefined,
+        sortBy,
+        sortDir
+      });
+
+      const selectedData = allRes.content.filter(r => selectedIds.has(r.id));
+
+      if (selectedData.length === 0) {
+        toast.warning('Selected records are no longer available in the current filter range');
+        return;
+      }
+
+      if (format === 'csv') {
+        downloadCSV(selectedData);
+      } else if (format === 'excel') {
+        downloadXLS(selectedData);
+      } else if (format === 'pdf') {
+        downloadPDF(selectedData);
+      }
+      toast.success(`Successfully exported ${selectedData.length} selected records across pages to ${format.toUpperCase()}!`);
+    } catch {
+      toast.error('Failed to export selected records');
     }
-    toast.success(`Successfully exported ${selectedIds.size} selected records to ${format.toUpperCase()}!`);
   };
 
   // Sort toggle helper
@@ -703,6 +766,22 @@ export function CashCollection() {
           />
         </div>
 
+        {/* Shift Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground font-medium">Shift</label>
+          <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setCurrentPage(0); }}>
+            <SelectTrigger className="h-9 w-36 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Shifts</SelectItem>
+              <SelectItem value="Morning Shift (06:00-14:00)">Morning Shift</SelectItem>
+              <SelectItem value="Evening Shift (14:00-22:00)">Evening Shift</SelectItem>
+              <SelectItem value="Night Shift (22:00-06:00)">Night Shift</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Status Filter */}
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground font-medium">Status</label>
@@ -801,8 +880,9 @@ export function CashCollection() {
                         <Calendar className="w-3.5 h-3.5 opacity-60" />
                       </div>
                     </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Employee</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Employee</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => handleSortToggle('depositAmount')}>
                       <div className="flex items-center gap-1.5 justify-end">
                         Amount
@@ -836,6 +916,14 @@ export function CashCollection() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
+                        <Badge variant="outline" className="text-[11px] font-normal bg-muted/30">
+                          {record.shift ? record.shift.split(' ')[0] : 'Morning'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="secondary" className="font-mono text-xs">{record.mpdName}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           <Avatar className="h-7 w-7 text-xs">
                             <AvatarFallback className="bg-primary/10 text-primary">
@@ -844,9 +932,6 @@ export function CashCollection() {
                           </Avatar>
                           <span className="font-medium text-foreground">{record.employeeName}</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="secondary" className="font-mono text-xs">{record.mpdName}</Badge>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-blue-600 font-mono">
                         {formatCurrency(record.depositAmount)}
@@ -890,6 +975,19 @@ export function CashCollection() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot className="bg-muted/40 border-t-2 border-border text-xs font-semibold">
+                  <tr>
+                    <td colSpan={5} className="px-4 py-3 text-left">
+                      Page Total ({records.length} logs)
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-blue-700">
+                      {formatCurrency(records.reduce((acc, curr) => acc + (curr.depositAmount || 0), 0))}
+                    </td>
+                    <td colSpan={2} className="px-4 py-3 text-muted-foreground text-left">
+                      Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(stats.totalAmount)}</span> ({stats.totalEntries} entries)
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
@@ -951,19 +1049,141 @@ export function CashCollection() {
                   <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">Collection Metadata</h3>
                   
                   <div className="space-y-1.5">
-                    <Label htmlFor="colDate" className="text-xs font-medium">Collection Date</Label>
+                    <Label htmlFor="colDate" className="text-xs font-medium">
+                      Collection Date <span className="text-red-500 font-bold">*</span>
+                    </Label>
                     <Input
                       id="colDate"
                       type="date"
                       value={formRecord.date}
-                      onChange={e => setFormRecord(prev => ({ ...prev, date: e.target.value }))}
+                      onChange={e => setFormRecord(prev => ({ 
+                        ...prev, 
+                        date: e.target.value,
+                        mpdId: '',
+                        employeeId: ''
+                      }))}
                       disabled={modalMode === 'view'}
                       className="h-9 text-xs"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="colTime" className="text-xs font-medium">Deposit Time</Label>
+                    <Label htmlFor="colShift" className="text-xs font-medium">
+                      Operational Shift <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Select 
+                      value={formRecord.shiftId || 'NONE'} 
+                      onValueChange={(val) => {
+                        const sObj = shifts.find(s => s.id === val);
+                        const sName = sObj ? `${sObj.shiftName} (${sObj.startTime}-${sObj.endTime})` : (val === 'NONE' ? '' : val);
+                        setFormRecord(prev => ({ 
+                          ...prev, 
+                          shiftId: val === 'NONE' ? '' : val,
+                          shift: sName,
+                          mpdId: '',
+                          employeeId: ''
+                        }));
+                      }}
+                      disabled={modalMode === 'view'}
+                    >
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue placeholder="-- Select Shift --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">-- Select Shift --</SelectItem>
+                        {shifts.map(s => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.shiftName} ({s.startTime} - {s.endTime})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="colMpd" className="text-xs font-medium">
+                      MPD Dispenser <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Select 
+                      value={formRecord.mpdId || 'NONE'} 
+                      onValueChange={(val) => {
+                        const mpdVal = val === 'NONE' ? '' : val;
+                        // Search for assigned attendant from duty roster for selected MPD
+                        let autoEmpId = '';
+                        if (mpdVal && dutyAssignments.length > 0) {
+                          const duty = dutyAssignments.find(d => d.mpdId === mpdVal && d.employeeId);
+                          if (duty && duty.employeeId) autoEmpId = duty.employeeId;
+                        }
+                        setFormRecord(prev => ({ 
+                          ...prev, 
+                          mpdId: mpdVal,
+                          employeeId: autoEmpId || prev.employeeId
+                        }));
+                      }}
+                      disabled={modalMode === 'view'}
+                    >
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue placeholder="-- Select MPD --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">-- Select MPD --</SelectItem>
+                        {mpds.map(m => {
+                          const isAssigned = dutyAssignments.some(d => d.mpdId === m.id);
+                          return (
+                            <SelectItem key={m.id} value={m.id}>
+                              {m.mpdName} {isAssigned ? '• (Active Duty)' : ''}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="colEmployee" className="text-xs font-medium">
+                      Assigned Employee <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    {loadingMaster || loadingDuty ? (
+                      <div className="h-9 flex items-center text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin mr-1.5" /> Loading roster...</div>
+                    ) : (
+                      <Select 
+                        value={formRecord.employeeId || 'NONE'} 
+                        onValueChange={(val) => setFormRecord(prev => ({ ...prev, employeeId: val === 'NONE' ? '' : val }))}
+                        disabled={modalMode === 'view'}
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue placeholder="-- Select Employee --" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NONE">-- Select Employee --</SelectItem>
+                          {employees
+                            .filter(emp => {
+                              // If duty roster has assignments for this shift, prioritize assigned employees
+                              if (dutyAssignments.length === 0) return true;
+                              if (formRecord.mpdId) {
+                                // Highlight/keep employee assigned to this MPD or all duty attendants
+                                return true;
+                              }
+                              return true;
+                            })
+                            .map(emp => {
+                              const isAttendantForMpd = dutyAssignments.some(d => d.employeeId === emp.id && d.mpdId === formRecord.mpdId);
+                              const isOnDutyToday = dutyAssignments.some(d => d.employeeId === emp.id);
+                              return (
+                                <SelectItem key={emp.id} value={emp.id}>
+                                  {emp.name} ({emp.employeeCode}) {isAttendantForMpd ? '• (Assigned Attendant)' : isOnDutyToday ? '• (On Duty)' : ''}
+                                </SelectItem>
+                              );
+                            })}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="colTime" className="text-xs font-medium">
+                      Deposit Time <span className="text-red-500 font-bold">*</span>
+                    </Label>
                     <Input
                       id="colTime"
                       type="time"
@@ -975,49 +1195,9 @@ export function CashCollection() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="colEmployee" className="text-xs font-medium">Assigned Employee</Label>
-                    {loadingMaster ? (
-                      <div className="h-9 flex items-center text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin mr-1.5" /> Loading list...</div>
-                    ) : (
-                      <Select 
-                        value={formRecord.employeeId || 'NONE'} 
-                        onValueChange={(val) => setFormRecord(prev => ({ ...prev, employeeId: val === 'NONE' ? '' : val }))}
-                        disabled={modalMode === 'view'}
-                      >
-                        <SelectTrigger className="h-9 text-xs">
-                          <SelectValue placeholder="Select employee..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="NONE">-- Select Employee --</SelectItem>
-                          {employees.map(emp => (
-                            <SelectItem key={emp.id} value={emp.id}>{emp.name} ({emp.employeeCode})</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="colMpd" className="text-xs font-medium">MPD Dispenser</Label>
-                    <Select 
-                      value={formRecord.mpdId || 'NONE'} 
-                      onValueChange={(val) => setFormRecord(prev => ({ ...prev, mpdId: val === 'NONE' ? '' : val }))}
-                      disabled={modalMode === 'view'}
-                    >
-                      <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Select MPD..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">-- Select MPD --</SelectItem>
-                        {mpds.map(m => (
-                          <SelectItem key={m.id} value={m.id}>{m.mpdName}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="colStatus" className="text-xs font-medium">Status</Label>
+                    <Label htmlFor="colStatus" className="text-xs font-medium">
+                      Status <span className="text-red-500 font-bold">*</span>
+                    </Label>
                     <Select 
                       value={formRecord.status} 
                       onValueChange={(val: any) => setFormRecord(prev => ({ ...prev, status: val }))}

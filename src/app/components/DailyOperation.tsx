@@ -8,7 +8,7 @@ import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Textarea } from './ui/textarea';
 import { 
-  DollarSign,
+  IndianRupee,
   CreditCard,
   Droplet,
   TestTube,
@@ -42,7 +42,7 @@ export function DailyOperation({ operationType = 'cash-collection' }: DailyOpera
   const getOperationIcon = () => {
     switch (operationType) {
       case 'cash-collection':
-        return DollarSign;
+        return IndianRupee;
       case 'credit-sales':
         return CreditCard;
       case 'own-usage':
@@ -113,7 +113,7 @@ function CashCollectionForm() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5" />
+              <IndianRupee className="w-5 h-5" />
               Cash Collection Entries
             </span>
             <Button onClick={addEntry} size="sm">

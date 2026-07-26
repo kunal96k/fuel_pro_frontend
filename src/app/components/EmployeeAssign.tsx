@@ -16,7 +16,8 @@ import {
   EmployeeAssignment, NozzleAssignmentPayload,
   fetchEmployees, fetchShifts,
   fetchEmployeeAssignments, saveEmployeeAssignments,
-  fetchAssignmentHistory, formatDateToDMY
+  fetchAssignmentHistory, formatDateToDMY,
+  fetchMpdsAll
 } from '../services/api';
 
 // ----- Types for MPD (read from MPDMaster state via localStorage-compatible interface) -----
@@ -99,16 +100,47 @@ export function EmployeeAssign() {
   const [historyTotalElements, setHistoryTotalElements] = useState(0);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Helper: check if all nozzles in an MPD are closed in the draft state
+  const isMpdClosed = (mpdId: string) => {
+    const nozzles = draft[mpdId];
+    if (!nozzles) return false;
+    const values = Object.values(nozzles);
+    if (values.length === 0) return false;
+    return values.every(v => v.status === 'Closed');
+  };
+
+  // Helper: toggle all nozzles in an MPD between Active and Closed in draft
+  const handleToggleMpdOperational = (mpdId: string, operational: boolean) => {
+    setDraft(prev => {
+      const updatedMpd = { ...(prev[mpdId] || {}) };
+      const mpdObj = mpds.find(m => m.id === mpdId);
+      if (mpdObj) {
+        for (const nozzle of mpdObj.nozzles) {
+          updatedMpd[nozzle.id] = {
+            employeeId: '',
+            status: operational ? 'Active' : 'Closed'
+          };
+        }
+      }
+      return {
+        ...prev,
+        [mpdId]: updatedMpd
+      };
+    });
+  };
+
   // ---- Load master data ----
   useEffect(() => {
     const load = async () => {
       try {
-        const [empRes, shiftRes] = await Promise.all([
+        const [empRes, shiftRes, mpdRes] = await Promise.all([
           fetchEmployees({ size: 1000, status: 'Active' }),
           fetchShifts({ size: 100 }),
+          fetchMpdsAll()
         ]);
         setEmployees(empRes.content);
         setShifts(shiftRes.content);
+        setMpds(mpdRes);
         if (shiftRes.content.length > 0) {
           setSelectedShiftId(shiftRes.content[0].id);
         }
@@ -119,38 +151,6 @@ export function EmployeeAssign() {
     load();
   }, []);
 
-  // ---- Load MPDs from localStorage (persisted by MPDMaster) + live event updates ----
-  useEffect(() => {
-    // Immediately read from localStorage on mount
-    const loadMpdsFromStorage = () => {
-      try {
-        const stored = localStorage.getItem('mpds_data');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) setMpds(parsed);
-        }
-      } catch { /* ignore */ }
-    };
-    loadMpdsFromStorage();
-
-    // Also check window cache (set by MPDMaster if mounted in same session)
-    const winData = (window as any).__mpds_data;
-    if (Array.isArray(winData) && winData.length > 0) setMpds(winData);
-
-    // Listen for live updates from MPDMaster when user navigates to it
-    const handler = (e: Event) => {
-      const ev = e as CustomEvent;
-      if (Array.isArray(ev.detail)) setMpds(ev.detail);
-    };
-    window.addEventListener('mpds-updated', handler);
-    // Also listen for storage changes from other tabs
-    const storageHandler = () => loadMpdsFromStorage();
-    window.addEventListener('storage', storageHandler);
-    return () => {
-      window.removeEventListener('mpds-updated', handler);
-      window.removeEventListener('storage', storageHandler);
-    };
-  }, []);
 
   // ---- Load assignments for selected date + shift ----
   const loadAssignments = useCallback(async () => {
@@ -293,14 +293,19 @@ export function EmployeeAssign() {
   const summaryRows = assignedEmpIds.map(empId => {
     const rows = currentAssignments.filter(a => a.employeeId === empId);
     const emp = employees.find(e => e.id === empId);
+    const empName = emp?.name || rows[0]?.employeeName || `Employee #${empId}`;
+    const empCode = emp?.employeeCode || rows[0]?.employeeCode || '-';
+    const empDesignation = emp?.designation || rows[0]?.employeeDesignation || '-';
+    const empPhoto = emp?.photo || rows[0]?.employeePhoto || null;
     const mpdName = rows[0]?.mpdName || rows[0]?.mpdId || '-';
     const nozzles = rows.map(r => r.nozzleName || r.nozzleId).join(', ');
     const status = rows[0]?.status || 'Active';
-    return { empId, emp, mpdName, nozzles, shiftName: rows[0]?.shiftName, rows, status };
+    return { empId, emp, empName, empCode, empDesignation, empPhoto, mpdName, nozzles, shiftName: rows[0]?.shiftName, rows, status };
   });
 
   const selectedShift = shifts.find(s => s.id === selectedShiftId);
-  const unassignedNozzles = currentAssignments.filter(a => !a.employeeId).length;
+  const unassignedNozzles = currentAssignments.filter(a => !a.employeeId && a.status !== 'Closed').length;
+  const closedMpdNames = [...new Set(currentAssignments.filter(a => a.status === 'Closed').map(a => a.mpdName || a.mpdId))];
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -355,24 +360,30 @@ export function EmployeeAssign() {
       </div>
 
       {/* ---- Stat Pills ---- */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
-          label="Assigned"
+          label="Attendants Assigned"
           value={assignedEmpIds.length}
           icon={<UserCheck className="w-5 h-5 text-emerald-500" />}
           accent="emerald"
         />
         <StatCard
-          label="Total Nozzles"
-          value={currentAssignments.length}
+          label="Active Nozzles"
+          value={currentAssignments.filter(a => a.status !== 'Closed').length}
           icon={<Fuel className="w-5 h-5 text-sky-500" />}
           accent="sky"
         />
         <StatCard
-          label="Unassigned"
+          label="Unassigned Nozzles"
           value={unassignedNozzles}
           icon={<AlertTriangle className={`w-5 h-5 ${unassignedNozzles > 0 ? 'text-amber-500' : 'text-muted-foreground'}`} />}
           accent={unassignedNozzles > 0 ? 'amber' : 'gray'}
+        />
+        <StatCard
+          label="Closed MPDs"
+          value={closedMpdNames.length}
+          icon={<AlertTriangle className="w-5 h-5 text-slate-400" />}
+          accent="gray"
         />
       </div>
 
@@ -415,6 +426,7 @@ export function EmployeeAssign() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/20">
+                  <th className="w-14 text-center px-3 py-3 font-medium text-muted-foreground">S.No</th>
                   <th className="text-left px-5 py-3 font-medium text-muted-foreground">Employee</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Code</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Designation</th>
@@ -424,21 +436,24 @@ export function EmployeeAssign() {
                 </tr>
               </thead>
               <tbody>
-                {summaryRows.length > 0 ? summaryRows.map(row => (
+                {summaryRows.length > 0 ? summaryRows.map((row, idx) => (
                   <tr key={row.empId} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
+                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                      {idx + 1}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8 text-xs">
-                          <AvatarImage src={getPhotoUrl(row.emp?.photo)} />
+                          <AvatarImage src={getPhotoUrl(row.empPhoto)} />
                           <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                            {initials(row.emp?.name || row.empId)}
+                            {initials(row.empName)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-medium">{row.emp?.name || row.empId}</span>
+                        <span className="font-medium">{row.empName}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{row.emp?.employeeCode || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.emp?.designation || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{row.empCode}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.empDesignation}</td>
                     <td className="px-4 py-3">
                       <Badge variant="secondary" className="text-xs font-mono">{row.mpdName}</Badge>
                     </td>
@@ -466,8 +481,11 @@ export function EmployeeAssign() {
                 )) : null}
 
                 {/* Unassigned nozzle rows */}
-                {currentAssignments.filter(a => !a.employeeId).map(a => (
+                {currentAssignments.filter(a => !a.employeeId && a.status !== 'Closed').map((a, idx) => (
                   <tr key={a.id} className="border-b border-border/60 bg-amber-50/30 dark:bg-amber-900/10">
+                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                      {summaryRows.length + idx + 1}
+                    </td>
                     <td className="px-5 py-3 text-muted-foreground italic text-xs">Unassigned</td>
                     <td className="px-4 py-3">—</td>
                     <td className="px-4 py-3">—</td>
@@ -483,6 +501,27 @@ export function EmployeeAssign() {
                       <span className="inline-flex items-center gap-1.5 text-xs text-amber-500 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5" />
                         Unassigned
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Closed MPDs rows */}
+                {closedMpdNames.map((name, idx) => (
+                  <tr key={`closed-${name}`} className="border-b border-border/60 bg-slate-50/50 dark:bg-slate-900/10 text-muted-foreground">
+                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                      {summaryRows.length + currentAssignments.filter(a => !a.employeeId && a.status !== 'Closed').length + idx + 1}
+                    </td>
+                    <td className="px-5 py-3 italic text-xs">Closed / Not Working</td>
+                    <td className="px-4 py-3">—</td>
+                    <td className="px-4 py-3">—</td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="text-xs font-mono opacity-60">{name}</Badge>
+                    </td>
+                    <td className="px-4 py-3">—</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium opacity-70">
+                        Closed for Shift
                       </span>
                     </td>
                   </tr>
@@ -544,14 +583,29 @@ export function EmployeeAssign() {
                     <div className="flex items-center gap-2 px-4 py-3 bg-muted/40 border-b border-border">
                       <Fuel className="w-4 h-4 text-primary" />
                       <span className="font-semibold text-sm">{mpd.mpdName}</span>
-                      <Badge variant="outline" className="ml-auto text-xs">
-                        {mpd.numberOfNozzles} nozzles
-                      </Badge>
+                      <div className="ml-auto flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 bg-background px-2 py-0.5 rounded border border-border">
+                          <input
+                            id={`op-${mpd.id}`}
+                            type="checkbox"
+                            checked={!isMpdClosed(mpd.id)}
+                            onChange={(e) => handleToggleMpdOperational(mpd.id, e.target.checked)}
+                            className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary/50 cursor-pointer"
+                          />
+                          <label htmlFor={`op-${mpd.id}`} className="text-xs font-medium text-muted-foreground select-none cursor-pointer">
+                            Active
+                          </label>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {mpd.numberOfNozzles} nozzles
+                        </Badge>
+                      </div>
                     </div>
 
                     {/* Nozzle rows */}
                     <div className="divide-y divide-border/60">
                       {mpd.nozzles.map(nozzle => {
+                        const isClosed = isMpdClosed(mpd.id);
                         const selectedEmpId = draft[mpd.id]?.[nozzle.id]?.employeeId || '';
                         const selectedStatus = draft[mpd.id]?.[nozzle.id]?.status || 'Active';
                         const conflict = conflictingMpdFor(selectedEmpId, mpd.id, nozzle.id);
@@ -564,7 +618,7 @@ export function EmployeeAssign() {
                         }
 
                         return (
-                          <div key={nozzle.id} className="px-4 py-3 flex items-center gap-3">
+                          <div key={nozzle.id} className={`px-4 py-3 flex items-center gap-3 ${isClosed ? 'bg-muted/20 opacity-60' : ''}`}>
                             <div className="w-20 shrink-0">
                               <p className="text-xs font-medium">{nozzle.nozzleName}</p>
                               <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded border ${fuelBadge(nozzle.fuelType)}`}>
@@ -575,6 +629,7 @@ export function EmployeeAssign() {
                             <div className="flex-1 min-w-0">
                               <Select
                                 value={selectedEmpId || 'NONE'}
+                                disabled={isClosed}
                                 onValueChange={(val) => {
                                   setDraft(prev => ({
                                     ...prev,
@@ -589,7 +644,7 @@ export function EmployeeAssign() {
                                 }}
                               >
                                 <SelectTrigger className={`h-8 text-xs ${conflict ? 'border-red-400 focus:ring-red-400/30' : ''}`}>
-                                  <SelectValue placeholder="Select employee…" />
+                                  <SelectValue placeholder={isClosed ? '— Closed —' : 'Select employee…'} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="NONE">
@@ -626,6 +681,7 @@ export function EmployeeAssign() {
                             <div className="w-28 shrink-0">
                               <Select
                                 value={selectedStatus}
+                                disabled={isClosed}
                                 onValueChange={(val) => {
                                   setDraft(prev => ({
                                     ...prev,
@@ -747,6 +803,7 @@ export function EmployeeAssign() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border z-10">
                   <tr>
+                    <th className="w-14 text-center px-3 py-3 font-medium text-muted-foreground">S.No</th>
                     <th className="w-32 text-left px-5 py-3 font-medium text-muted-foreground">Date</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
@@ -757,8 +814,11 @@ export function EmployeeAssign() {
                   </tr>
                 </thead>
                 <tbody>
-                  {historyRecords.map(r => (
+                  {historyRecords.map((r, idx) => (
                     <tr key={r.id} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
+                      <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                        {historyPage * 20 + idx + 1}
+                      </td>
                       <td className="w-32 px-5 py-3 font-mono text-xs">{formatDateToDMY(r.assignDate)}</td>
                       <td className="px-4 py-3">
                         <Badge variant="outline" className="text-xs">{r.shiftName}</Badge>
