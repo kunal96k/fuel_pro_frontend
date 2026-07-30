@@ -29,4 +29,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src/app'),
     },
   },
+  server: {
+    allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
 })

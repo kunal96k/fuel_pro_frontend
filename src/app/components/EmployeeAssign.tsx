@@ -17,7 +17,7 @@ import {
   fetchEmployees, fetchShifts,
   fetchEmployeeAssignments, saveEmployeeAssignments,
   fetchAssignmentHistory, formatDateToDMY,
-  fetchMpdsAll
+  fetchMpdsAll, API_BASE_URL
 } from '../services/api';
 
 // ----- Types for MPD (read from MPDMaster state via localStorage-compatible interface) -----
@@ -58,7 +58,7 @@ function initials(name: string | null | undefined) {
 function getPhotoUrl(photo: string | null | undefined) {
   if (!photo) return undefined;
   if (photo.startsWith('http')) return photo;
-  return `http://localhost:8080/api/employees/photo/${photo}`;
+  return `${API_BASE_URL}/employees/photo/${photo}`;
 }
 
 function todayStr() {

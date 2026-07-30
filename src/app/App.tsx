@@ -22,6 +22,7 @@ import { EmployeeMaster } from './components/EmployeeMaster';
 import { ShiftsMaster } from './components/ShiftsMaster';
 import { UserMaster } from './components/UserMaster';
 import { VehiclesMaster } from './components/VehiclesMaster';
+import { CustomerMaster } from './components/CustomerMaster';
 import { Expenses } from './components/Expenses';
 import { VoucherPayment } from './components/VoucherPayment';
 import { VoucherReceipt } from './components/VoucherReceipt';
@@ -77,6 +78,8 @@ export default function App() {
         return <UserMaster />;
       case 'vehicles':
         return <VehiclesMaster />;
+      case 'customer':
+        return <CustomerMaster />;
       case 'fuel-purchase':
       case 'oil-purchase':
       case 'tanker-load':

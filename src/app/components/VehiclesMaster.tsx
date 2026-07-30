@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Checkbox } from './ui/checkbox';
 import { toast } from 'sonner';
-import { fetchVehicles, createVehicleApi, updateVehicleApi, deleteVehicleApi, Vehicle, formatDateToDMY } from '../services/api';
+import { fetchVehicles, createVehicleApi, updateVehicleApi, deleteVehicleApi, Vehicle, formatDateToDMY, fetchProducts, Product } from '../services/api';
 
 
 
@@ -19,6 +19,7 @@ export function VehiclesMaster() {
   };
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
   // Pagination & Filter states
@@ -36,7 +37,9 @@ export function VehiclesMaster() {
 
   // Form states
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [viewingVehicle, setViewingVehicle] = useState<Vehicle | null>(null);
   const [formData, setFormData] = useState({
     vehicleNumber: '',
     vehicleType: '',
@@ -80,6 +83,19 @@ export function VehiclesMaster() {
       setLoading(false);
     }
   };
+
+  const loadFuelProducts = async () => {
+    try {
+      const response = await fetchProducts({ size: 1000, category: 'Fuel' });
+      setFuelProducts(response.content);
+    } catch (err) {
+      console.error('Failed to load products for fuel types:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadFuelProducts();
+  }, []);
 
   useEffect(() => {
     loadVehicles();
@@ -140,6 +156,11 @@ export function VehiclesMaster() {
     });
     setEditingVehicle(vehicle);
     setShowAddDialog(true);
+  };
+
+  const handleView = (vehicle: Vehicle) => {
+    setViewingVehicle(vehicle);
+    setShowViewDialog(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -394,6 +415,13 @@ export function VehiclesMaster() {
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">
                           <button
+                            onClick={() => handleView(vehicle)}
+                            className="p-1.5 hover:bg-sky-500/10 rounded-lg transition-colors"
+                            title="View Details"
+                          >
+                            <Eye className="w-4 h-4 text-sky-500" />
+                          </button>
+                          <button
                             onClick={() => handleEdit(vehicle)}
                             className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
                             title="Edit"
@@ -488,14 +516,14 @@ export function VehiclesMaster() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="make">Make <span className="text-red-500">*</span></Label>
                 <Input
                   id="make"
                   value={formData.make}
                   onChange={(e) => setFormData({ ...formData, make: e.target.value })}
-                  placeholder="Enter make"
+                  placeholder="Maruti Suzuki"
                 />
               </div>
               <div className="grid gap-2">
@@ -504,37 +532,76 @@ export function VehiclesMaster() {
                   id="model"
                   value={formData.model}
                   onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  placeholder="Enter model"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="year">Manufacturing Year</Label>
-                <Input
-                  id="year"
-                  value={formData.year}
-                  onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                  placeholder="Enter manufacturing year"
+                  placeholder="Swift"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="fuelType">Fuel Type</Label>
+                <Label htmlFor="year">Year</Label>
                 <Input
-                  id="fuelType"
-                  value={formData.fuelType}
-                  onChange={(e) => setFormData({ ...formData, fuelType: e.target.value })}
-                  placeholder="Enter fuel type"
+                  id="year"
+                  value={formData.year}
+                  onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+                  placeholder="2023"
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="capacity">Tank Capacity</Label>
+                <Label htmlFor="color">Color</Label>
+                <Input
+                  id="color"
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  placeholder="White"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="fuelType">Fuel Type</Label>
+                <Select
+                  value={formData.fuelType}
+                  onValueChange={(val) => setFormData({ ...formData, fuelType: val })}
+                >
+                  <SelectTrigger id="fuelType">
+                    <SelectValue placeholder="Select fuel type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fuelProducts.length === 0 ? (
+                      <SelectItem value="NO_PRODUCTS" disabled>
+                        No fuel products found
+                      </SelectItem>
+                    ) : (
+                      fuelProducts.map((prod) => (
+                        <SelectItem key={prod.id} value={prod.name}>
+                          {prod.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="capacity">Fuel Capacity (L)</Label>
                 <Input
                   id="capacity"
                   value={formData.capacity}
                   onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-                  placeholder="Enter tank capacity"
+                  placeholder="42 L"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="mileage">Mileage (Km/L)</Label>
+                <Input
+                  id="mileage"
+                  value={formData.mileage}
+                  onChange={(e) => setFormData({ ...formData, mileage: e.target.value })}
+                  placeholder="18 km/l"
                 />
               </div>
               <div className="grid gap-2">
@@ -562,7 +629,7 @@ export function VehiclesMaster() {
                   id="chassisNumber"
                   value={formData.chassisNumber}
                   onChange={(e) => setFormData({ ...formData, chassisNumber: e.target.value })}
-                  placeholder="Enter chassis number"
+                  placeholder="MA3ERLF1S00123456"
                 />
               </div>
               <div className="grid gap-2">
@@ -571,7 +638,7 @@ export function VehiclesMaster() {
                   id="engineNumber"
                   value={formData.engineNumber}
                   onChange={(e) => setFormData({ ...formData, engineNumber: e.target.value })}
-                  placeholder="Enter engine number"
+                  placeholder="K12M1234567"
                 />
               </div>
             </div>
@@ -603,6 +670,118 @@ export function VehiclesMaster() {
             </Button>
             <Button onClick={handleSave}>
               {editingVehicle ? 'Update' : 'Add Vehicle'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Car className="w-5 h-5 text-sky-500" />
+              Vehicle Details
+            </DialogTitle>
+            <DialogDescription>Full registration and technical specifications</DialogDescription>
+          </DialogHeader>
+          {viewingVehicle && (
+            <div className="space-y-4 py-2 text-sm">
+              {/* Profile Card */}
+              <div className="flex items-center gap-4 p-4 bg-muted/40 rounded-xl border border-border">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                  {viewingVehicle.vehicleType === 'Truck' ? <Truck className="w-8 h-8" /> :
+                   viewingVehicle.vehicleType === 'Bike' ? <Bike className="w-8 h-8" /> :
+                   <Car className="w-8 h-8" />}
+                </div>
+                <div>
+                  <p className="font-bold text-lg leading-tight">{viewingVehicle.vehicleNumber}</p>
+                  <p className="text-sm text-muted-foreground">{viewingVehicle.make} {viewingVehicle.model}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      {viewingVehicle.vehicleType}
+                    </span>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      viewingVehicle.status === 'Active' ? 'bg-green-500/10 text-green-500' :
+                      viewingVehicle.status === 'Maintenance' ? 'bg-amber-500/10 text-amber-500' :
+                      'bg-red-500/10 text-red-500'
+                    }`}>
+                      {viewingVehicle.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Technical Specifications */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-0.5">Manufacturing Year</p>
+                  <p className="font-semibold text-foreground">{viewingVehicle.year || '—'}</p>
+                </div>
+                <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-0.5">Color</p>
+                  <p className="font-semibold text-foreground">{viewingVehicle.color || '—'}</p>
+                </div>
+                <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-0.5">Fuel Type</p>
+                  <p className="font-semibold text-foreground">{viewingVehicle.fuelType || '—'}</p>
+                </div>
+                <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-0.5">Tank Capacity (L)</p>
+                  <p className="font-semibold text-foreground">
+                    {viewingVehicle.capacity ? (viewingVehicle.capacity.toLowerCase().includes('l') ? viewingVehicle.capacity : `${viewingVehicle.capacity} L`) : '—'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                <p className="text-xs text-muted-foreground mb-0.5">Mileage (Km/L)</p>
+                <p className="font-semibold text-foreground">
+                  {viewingVehicle.mileage ? (viewingVehicle.mileage.toLowerCase().includes('km') ? viewingVehicle.mileage : `${viewingVehicle.mileage} km/l`) : '—'}
+                </p>
+              </div>
+
+              {/* Engine & Chassis */}
+              <div className="p-4 bg-muted/30 rounded-xl border border-border space-y-2">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Identifications</p>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono text-muted-foreground">
+                  <div>
+                    <span className="font-semibold text-foreground block">Chassis Number:</span>
+                    {viewingVehicle.chassisNumber || '—'}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground block">Engine Number:</span>
+                    {viewingVehicle.engineNumber || '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Expiry Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3 rounded-lg border space-y-1 ${
+                  isExpired(viewingVehicle.insuranceExpiry) ? 'bg-red-50/50 border-red-200 text-red-700' : 'bg-muted/20 border-border text-foreground'
+                }`}>
+                  <p className="text-xs text-muted-foreground">Insurance Expiry</p>
+                  <p className="font-semibold">{formatDateToDMY(viewingVehicle.insuranceExpiry)}</p>
+                  {isExpired(viewingVehicle.insuranceExpiry) && (
+                    <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase tracking-wider block w-max">Expired</span>
+                  )}
+                </div>
+                <div className={`p-3 rounded-lg border space-y-1 ${
+                  isExpired(viewingVehicle.pucExpiry) ? 'bg-red-50/50 border-red-200 text-red-700' : 'bg-muted/20 border-border text-foreground'
+                }`}>
+                  <p className="text-xs text-muted-foreground">PUC Expiry</p>
+                  <p className="font-semibold">{formatDateToDMY(viewingVehicle.pucExpiry)}</p>
+                  {isExpired(viewingVehicle.pucExpiry) && (
+                    <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase tracking-wider block w-max">Expired</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setShowViewDialog(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

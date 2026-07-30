@@ -775,9 +775,14 @@ export function CashCollection() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Shifts</SelectItem>
-              <SelectItem value="Morning Shift (06:00-14:00)">Morning Shift</SelectItem>
-              <SelectItem value="Evening Shift (14:00-22:00)">Evening Shift</SelectItem>
-              <SelectItem value="Night Shift (22:00-06:00)">Night Shift</SelectItem>
+              {shifts.map(s => {
+                const val = `${s.shiftName} (${s.startTime}-${s.endTime})`;
+                return (
+                  <SelectItem key={s.id} value={val}>
+                    {s.shiftName}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -793,7 +798,6 @@ export function CashCollection() {
               <SelectItem value="ALL">All Status</SelectItem>
               <SelectItem value="Pending">Pending</SelectItem>
               <SelectItem value="Completed">Completed</SelectItem>
-              <SelectItem value="Verified">Verified</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1209,7 +1213,6 @@ export function CashCollection() {
                       <SelectContent>
                         <SelectItem value="Pending">Pending</SelectItem>
                         <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="Verified">Verified</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

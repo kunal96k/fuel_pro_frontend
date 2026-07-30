@@ -25,7 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { fetchShifts, Shift, fetchProducts, Product, fetchTanks, Tank } from '../services/api';
+import { fetchShifts, Shift, fetchProducts, Product, fetchTanks, Tank, API_BASE_URL } from '../services/api';
 import { toast } from 'sonner';
 
 interface SidebarProps {
@@ -48,6 +48,7 @@ const navigationItems = [
       { id: 'shifts', label: 'Shifts' },
       { id: 'user', label: 'User' },
       { id: 'vehicles', label: 'Vehicles' },
+      { id: 'customer', label: 'Customer' },
     ]
   },
   { 
@@ -200,7 +201,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
     const loadRatesForDate = async () => {
       if (!rateDate) return;
       try {
-        const res = await fetch(`http://localhost:8080/api/fuel-rates/latest-or-date?date=${rateDate}`);
+        const res = await fetch(`${API_BASE_URL}/fuel-rates/latest-or-date?date=${rateDate}`);
         if (res.ok) {
           const data = await res.json();
           const inputs: Record<string, string> = {};
@@ -223,7 +224,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
     const loadDipsForDate = async () => {
       if (!dipDate) return;
       try {
-        const res = await fetch(`http://localhost:8080/api/tank-dips/latest-or-date?date=${dipDate}`);
+        const res = await fetch(`${API_BASE_URL}/tank-dips/latest-or-date?date=${dipDate}`);
         if (res.ok) {
           const data = await res.json();
           const inputs: Record<string, string> = {};
@@ -252,7 +253,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
         if (ratesLogFromDate) query.set('startDate', ratesLogFromDate);
         if (ratesLogToDate) query.set('endDate', ratesLogToDate);
 
-        const res = await fetch(`http://localhost:8080/api/fuel-rates/logs?${query.toString()}`);
+        const res = await fetch(`${API_BASE_URL}/fuel-rates/logs?${query.toString()}`);
         if (res.ok) {
           const data = await res.json();
           setRatesLogData(data.content);
@@ -278,7 +279,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
         if (dipsLogFromDate) query.set('startDate', dipsLogFromDate);
         if (dipsLogToDate) query.set('endDate', dipsLogToDate);
 
-        const res = await fetch(`http://localhost:8080/api/tank-dips/logs?${query.toString()}`);
+        const res = await fetch(`${API_BASE_URL}/tank-dips/logs?${query.toString()}`);
         if (res.ok) {
           const data = await res.json();
           setDipsLogData(data.content);
@@ -303,7 +304,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
         }
       });
 
-      const res = await fetch(`http://localhost:8080/api/fuel-rates?date=${rateDate}`, {
+      const res = await fetch(`${API_BASE_URL}/fuel-rates?date=${rateDate}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -330,7 +331,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
         }
       });
 
-      const res = await fetch(`http://localhost:8080/api/tank-dips?date=${dipDate}`, {
+      const res = await fetch(`${API_BASE_URL}/tank-dips?date=${dipDate}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

@@ -131,8 +131,47 @@ export interface VehicleQueryParams extends BaseQueryParams {
 export interface MPDQueryParams extends BaseQueryParams {
 }
 
+// --- Customer Interfaces ---
+export interface CustomerVehicle {
+  id?: string;
+  vehicleNumber: string;
+  vehicleType: string;
+  make?: string;
+  model?: string;
+  color?: string;
+  fuelType?: string;
+}
 
-export const API_BASE_URL = 'http://localhost:8080/api';
+export interface Customer {
+  id?: string;
+  customerCode: string;
+  customerName: string;
+  contactPerson: string;
+  aadharNo: string;
+  creditLimit?: string;
+  openingBalance?: number;
+  creditPeriod?: number;
+  creditDate?: string;
+  phoneNo?: string;
+  mobileNo: string;
+  email: string;
+  address?: string;
+  area?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  gstNo?: string;
+  panNo?: string;
+  cinNo?: string;
+  status: 'Active' | 'Inactive';
+  vehicles: CustomerVehicle[];
+}
+
+export interface CustomerQueryParams extends BaseQueryParams {
+}
+
+
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export function formatDateToDMY(dateStr: string | null | undefined): string {
   if (!dateStr) return '-';
@@ -958,4 +997,133 @@ export async function deleteCashCollection(id: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete cash collection: ${res.statusText}`);
+}
+
+// --- Customer API ---
+export async function fetchCustomers(
+  params: CustomerQueryParams = {}
+): Promise<PaginatedResponse<Customer>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.status && params.status !== 'ALL') query.set('status', params.status);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/customers?${query.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch customers: ${res.statusText}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    customerCode: item.customerCode,
+    customerName: item.customerName,
+    contactPerson: item.contactPerson,
+    aadharNo: item.aadharNo,
+    creditLimit: item.creditLimit,
+    openingBalance: Number(item.openingBalance || 0),
+    creditPeriod: Number(item.creditPeriod || 0),
+    creditDate: item.creditDate,
+    phoneNo: item.phoneNo,
+    mobileNo: item.mobileNo,
+    email: item.email,
+    address: item.address,
+    area: item.area,
+    city: item.city,
+    state: item.state,
+    pincode: item.pincode,
+    gstNo: item.gstNo,
+    panNo: item.panNo,
+    cinNo: item.cinNo,
+    status: item.status,
+    vehicles: (item.vehicles || []).map((v: any) => ({
+      id: String(v.id),
+      vehicleNumber: v.vehicleNumber,
+      vehicleType: v.vehicleType,
+      make: v.make,
+      model: v.model,
+      color: v.color,
+      fuelType: v.fuelType,
+    })),
+  }));
+}
+
+export async function fetchCustomerById(id: string): Promise<Customer> {
+  const res = await fetch(`${API_BASE_URL}/customers/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch customer: ${res.statusText}`);
+  const item = await res.json();
+  return {
+    id: String(item.id),
+    customerCode: item.customerCode,
+    customerName: item.customerName,
+    contactPerson: item.contactPerson,
+    aadharNo: item.aadharNo,
+    creditLimit: item.creditLimit,
+    openingBalance: Number(item.openingBalance || 0),
+    creditPeriod: Number(item.creditPeriod || 0),
+    creditDate: item.creditDate,
+    phoneNo: item.phoneNo,
+    mobileNo: item.mobileNo,
+    email: item.email,
+    address: item.address,
+    area: item.area,
+    city: item.city,
+    state: item.state,
+    pincode: item.pincode,
+    gstNo: item.gstNo,
+    panNo: item.panNo,
+    cinNo: item.cinNo,
+    status: item.status,
+    vehicles: (item.vehicles || []).map((v: any) => ({
+      id: String(v.id),
+      vehicleNumber: v.vehicleNumber,
+      vehicleType: v.vehicleType,
+      make: v.make,
+      model: v.model,
+      color: v.color,
+      fuelType: v.fuelType,
+    })),
+  };
+}
+
+export async function createCustomer(payload: Omit<Customer, 'id' | 'customerCode'>): Promise<Customer> {
+  const res = await fetch(`${API_BASE_URL}/customers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || `Failed to create customer: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateCustomer(id: string, payload: Omit<Customer, 'id' | 'customerCode'>): Promise<Customer> {
+  const res = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || `Failed to update customer: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteCustomer(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete customer: ${res.statusText}`);
+}
+
+export async function fetchNextCustomerCode(): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/customers/next-code`);
+  if (!res.ok) throw new Error(`Failed to fetch next customer code: ${res.statusText}`);
+  const data = await res.json();
+  return data.code;
 }
