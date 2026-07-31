@@ -51,7 +51,8 @@ import {
   fetchVehicles,
   Customer,
   CustomerVehicle,
-  fetchNextCustomerCode
+  fetchNextCustomerCode,
+  checkCustomerUnique
 } from '../services/api';
 
 
@@ -210,6 +211,43 @@ export function CustomerMaster() {
     setPage(0);
   };
 
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateField = async (field: string, value: string) => {
+    if (!value || !value.trim()) {
+      setValidationErrors(prev => {
+        const copy = { ...prev };
+        delete copy[field];
+        return copy;
+      });
+      return;
+    }
+
+    try {
+      const isUnique = await checkCustomerUnique(field, value.trim(), editingCustomer?.id || undefined);
+      setValidationErrors(prev => {
+        const copy = { ...prev };
+        if (!isUnique) {
+          const labels: Record<string, string> = {
+            mobileNo: 'Mobile Number',
+            email: 'Email Address',
+            aadharNo: 'Aadhar Card No.',
+            gstNo: 'GST Number',
+            panNo: 'PAN Number',
+            cinNo: 'CIN Number',
+            customerCode: 'Customer Code'
+          };
+          copy[field] = `${labels[field] || field} already exists!`;
+        } else {
+          delete copy[field];
+        }
+        return copy;
+      });
+    } catch {
+      // ignore
+    }
+  };
+
   // ── Open dialogs ──
   const openAdd = async () => {
     let nextCode = '';
@@ -225,6 +263,7 @@ export function CustomerMaster() {
     setNewVehicle({ ...BLANK_VEHICLE });
     setVehicleError('');
     setEditingCustomer(null);
+    setValidationErrors({});
     setShowAddEdit(true);
   };
 
@@ -233,6 +272,7 @@ export function CustomerMaster() {
     setNewVehicle({ ...BLANK_VEHICLE });
     setVehicleError('');
     setEditingCustomer(c);
+    setValidationErrors({});
     setShowAddEdit(true);
   };
 
@@ -269,6 +309,7 @@ export function CustomerMaster() {
     if (!vn) { setVehicleError('Vehicle number is required'); return; }
     if (vn.replace(/-/g, '').length < 6) { setVehicleError('Enter a valid vehicle number (e.g. MH-10-BD-3132)'); return; }
     if (isDuplicateVehicle(vn)) { setVehicleError('This vehicle number is already added'); return; }
+    if (!newVehicle.fuelType) { setVehicleError('Fuel Type is required'); return; }
 
     // Dynamic warning check: verify if vehicle already exists in the system (Vehicles Master)
     try {
@@ -285,16 +326,16 @@ export function CustomerMaster() {
 
     setForm(prev => ({
       ...prev,
-      vehicles: [...prev.vehicles, { ...newVehicle }]
+      vehicles: [...prev.vehicles, { ...newVehicle, id: `temp-${Date.now()}-${Math.random()}` }]
     }));
     setNewVehicle({ ...BLANK_VEHICLE });
     setVehicleError('');
   };
 
-  const removeVehicleRow = (index: number) => {
+  const removeVehicleRow = (id?: string) => {
     setForm(prev => ({
       ...prev,
-      vehicles: prev.vehicles.filter((_, idx) => idx !== index)
+      vehicles: prev.vehicles.filter(v => v.id !== id)
     }));
   };
 
@@ -312,6 +353,13 @@ export function CustomerMaster() {
     }
     if (!form.email.trim())           { toast.warning('Email Address is required'); return; }
     if (form.vehicles.length === 0)   { toast.warning('Please add at least one vehicle'); return; }
+
+    // Block submit if there are duplicate validation errors
+    if (Object.keys(validationErrors).length > 0) {
+      const firstError = Object.values(validationErrors)[0];
+      toast.warning(firstError);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -350,7 +398,7 @@ export function CustomerMaster() {
           <h1 className="mb-2">Customer Master</h1>
           <p className="text-muted-foreground">Manage customers, credit limits and linked vehicles</p>
         </div>
-        <Button onClick={openAdd} className="gap-2">
+        <Button id="btn-add-customer" onClick={openAdd} className="gap-2">
           <Plus className="w-4 h-4" /> Add New Customer
         </Button>
       </div>
@@ -458,9 +506,9 @@ export function CustomerMaster() {
                   </td>
                   <td className="p-4">
                     <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => openView(c)} className="p-1.5 hover:bg-sky-500/10 rounded-lg transition-colors" title="View"><Eye className="w-4 h-4 text-sky-500" /></button>
-                      <button onClick={() => openEdit(c)} className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit"><Pencil className="w-4 h-4 text-blue-500" /></button>
-                      <button onClick={() => handleDelete(c.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                      <button id={`btn-view-${c.customerCode}`} onClick={() => openView(c)} className="p-1.5 hover:bg-sky-500/10 rounded-lg transition-colors" title="View"><Eye className="w-4 h-4 text-sky-500" /></button>
+                      <button id={`btn-edit-${c.customerCode}`} onClick={() => openEdit(c)} className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit"><Pencil className="w-4 h-4 text-blue-500" /></button>
+                      <button id={`btn-delete-${c.customerCode}`} onClick={() => handleDelete(c.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></button>
                     </div>
                   </td>
                 </tr>
@@ -525,29 +573,34 @@ export function CustomerMaster() {
                   </p>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="cc-code" className="text-xs font-medium">Customer Code</Label>
-                    <Input id="cc-code" value={form.customerCode} disabled
+                    <Label htmlFor="customerCode" className="text-xs font-medium">Customer Code</Label>
+                    <Input id="customerCode" value={form.customerCode} disabled
                       placeholder="Auto-generated" className="h-9 text-xs bg-muted font-mono" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="cc-name" className="text-xs font-medium">Customer Name<Req /></Label>
-                    <Input id="cc-name" placeholder="Enter customer / company name" className="h-9 text-xs"
+                    <Label htmlFor="customerName" className="text-xs font-medium">Customer Name<Req /></Label>
+                    <Input id="customerName" placeholder="Enter customer / company name" className="h-9 text-xs"
                       value={form.customerName} onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))} required />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="cc-contact" className="text-xs font-medium">Contact Person<Req /></Label>
-                    <Input id="cc-contact" placeholder="Enter contact person name" className="h-9 text-xs"
+                    <Label htmlFor="contactPerson" className="text-xs font-medium">Contact Person<Req /></Label>
+                    <Input id="contactPerson" placeholder="Enter contact person name" className="h-9 text-xs"
                       value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} required />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="cc-aadhar" className="text-xs font-medium">Aadhar Card No.<Req /></Label>
-                    <Input id="cc-aadhar" placeholder="12-digit Aadhar number" className="h-9 text-xs font-mono"
+                    <Label htmlFor="aadharNo" className="text-xs font-medium">Aadhar Card No.<Req /></Label>
+                    <Input id="aadharNo" placeholder="12-digit Aadhar number" className={`h-9 text-xs font-mono ${validationErrors.aadharNo ? 'border-red-500 ring-1 ring-red-500' : ''}`}
                       maxLength={12}
                       value={form.aadharNo}
-                      onChange={e => setForm(f => ({ ...f, aadharNo: e.target.value.replace(/\D/g, '') }))} required />
+                      onChange={e => setForm(f => ({ ...f, aadharNo: e.target.value.replace(/\D/g, '') }))}
+                      onBlur={() => validateField('aadharNo', form.aadharNo)}
+                      required />
+                    {validationErrors.aadharNo && (
+                      <p className="text-[10px] text-red-500 font-semibold">{validationErrors.aadharNo}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -578,7 +631,8 @@ export function CustomerMaster() {
                       <Label htmlFor="cc-obal" className="text-xs font-medium">Opening Balance</Label>
                       <Input id="cc-obal" type="number" step="0.01" placeholder="0.00" className="h-9 text-xs"
                         value={form.openingBalance}
-                        onChange={e => setForm(f => ({ ...f, openingBalance: parseFloat(e.target.value) || 0 }))} />
+                        onChange={e => setForm(f => ({ ...f, openingBalance: parseFloat(e.target.value) || 0 }))}
+                        onWheel={(e) => e.currentTarget.blur()} />
                     </div>
                   </div>
 
@@ -587,7 +641,8 @@ export function CustomerMaster() {
                       <Label htmlFor="cc-cperiod" className="text-xs font-medium">Credit Period (Days)</Label>
                       <Input id="cc-cperiod" type="number" min="0" placeholder="15" className="h-9 text-xs"
                         value={form.creditPeriod}
-                        onChange={e => setForm(f => ({ ...f, creditPeriod: parseInt(e.target.value) || 0 }))} />
+                        onChange={e => setForm(f => ({ ...f, creditPeriod: parseInt(e.target.value) || 0 }))}
+                        onWheel={(e) => e.currentTarget.blur()} />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="cc-cdate" className="text-xs font-medium">Credit Date</Label>
@@ -598,20 +653,35 @@ export function CustomerMaster() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="cc-gst" className="text-xs font-medium">GST Number</Label>
-                    <Input id="cc-gst" placeholder="22AAAAA0000A1Z5" className="h-9 text-xs font-mono"
-                      value={form.gstNo} onChange={e => setForm(f => ({ ...f, gstNo: e.target.value.toUpperCase() }))} />
+                    <Input id="cc-gst" placeholder="22AAAAA0000A1Z5" className={`h-9 text-xs font-mono ${validationErrors.gstNo ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                      value={form.gstNo}
+                      onChange={e => setForm(f => ({ ...f, gstNo: e.target.value.toUpperCase() }))}
+                      onBlur={() => validateField('gstNo', form.gstNo)} />
+                    {validationErrors.gstNo && (
+                      <p className="text-[10px] text-red-500 font-semibold">{validationErrors.gstNo}</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="cc-pan" className="text-xs font-medium">PAN Number</Label>
-                      <Input id="cc-pan" placeholder="ABCDE1234F" className="h-9 text-xs font-mono"
-                        value={form.panNo} onChange={e => setForm(f => ({ ...f, panNo: e.target.value.toUpperCase() }))} />
+                      <Input id="cc-pan" placeholder="ABCDE1234F" className={`h-9 text-xs font-mono ${validationErrors.panNo ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                        value={form.panNo}
+                        onChange={e => setForm(f => ({ ...f, panNo: e.target.value.toUpperCase() }))}
+                        onBlur={() => validateField('panNo', form.panNo)} />
+                      {validationErrors.panNo && (
+                        <p className="text-[10px] text-red-500 font-semibold">{validationErrors.panNo}</p>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="cc-cin" className="text-xs font-medium">CIN Number</Label>
-                      <Input id="cc-cin" placeholder="U74999MH2000..." className="h-9 text-xs font-mono"
-                        value={form.cinNo} onChange={e => setForm(f => ({ ...f, cinNo: e.target.value.toUpperCase() }))} />
+                      <Input id="cc-cin" placeholder="U74999MH2000..." className={`h-9 text-xs font-mono ${validationErrors.cinNo ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                        value={form.cinNo}
+                        onChange={e => setForm(f => ({ ...f, cinNo: e.target.value.toUpperCase() }))}
+                        onBlur={() => validateField('cinNo', form.cinNo)} />
+                      {validationErrors.cinNo && (
+                        <p className="text-[10px] text-red-500 font-semibold">{validationErrors.cinNo}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -624,10 +694,15 @@ export function CustomerMaster() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="cc-mobile" className="text-xs font-medium">Mobile<Req /></Label>
-                      <Input id="cc-mobile" placeholder="10-digit mobile" className="h-9 text-xs" maxLength={10}
+                      <Label htmlFor="mobileNo" className="text-xs font-medium">Mobile<Req /></Label>
+                      <Input id="mobileNo" placeholder="10-digit mobile" className={`h-9 text-xs ${validationErrors.mobileNo ? 'border-red-500 ring-1 ring-red-500' : ''}`} maxLength={10}
                         value={form.mobileNo}
-                        onChange={e => setForm(f => ({ ...f, mobileNo: e.target.value.replace(/\D/g, '') }))} required />
+                        onChange={e => setForm(f => ({ ...f, mobileNo: e.target.value.replace(/\D/g, '') }))}
+                        onBlur={() => validateField('mobileNo', form.mobileNo)}
+                        required />
+                      {validationErrors.mobileNo && (
+                        <p className="text-[10px] text-red-500 font-semibold">{validationErrors.mobileNo}</p>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="cc-phone" className="text-xs font-medium">Phone</Label>
@@ -637,9 +712,15 @@ export function CustomerMaster() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="cc-email" className="text-xs font-medium">Email Address<Req /></Label>
-                    <Input id="cc-email" type="email" placeholder="name@company.com" className="h-9 text-xs"
-                      value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+                    <Label htmlFor="email" className="text-xs font-medium">Email Address<Req /></Label>
+                    <Input id="email" type="email" placeholder="name@company.com" className={`h-9 text-xs ${validationErrors.email ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                      value={form.email}
+                      onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                      onBlur={() => validateField('email', form.email)}
+                      required />
+                    {validationErrors.email && (
+                      <p className="text-[10px] text-red-500 font-semibold">{validationErrors.email}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -750,6 +831,7 @@ export function CustomerMaster() {
                         </Label>
                         <div className="relative">
                           <Input
+                            id="vehicleNumber"
                             placeholder="MH-10-BD-3132"
                             className={`h-8 text-xs font-mono pr-8 w-full ${vehicleError ? 'border-red-400' : ''}`}
                             value={newVehicle.vehicleNumber}
@@ -813,7 +895,7 @@ export function CustomerMaster() {
 
                       {/* Fuel Type */}
                       <div className="space-y-1 flex-[13] min-w-0">
-                        <Label className="text-[11px] font-medium truncate block">Fuel</Label>
+                        <Label className="text-[11px] font-medium truncate block">Fuel<Req /></Label>
                         <Select value={newVehicle.fuelType || 'NONE'}
                           onValueChange={(val) => {
                             setNewVehicle(v => ({ ...v, fuelType: val === 'NONE' ? '' : val }));
@@ -837,7 +919,7 @@ export function CustomerMaster() {
                       {/* Add button (Icon only, no label) */}
                       <div className="space-y-1 w-10 shrink-0 flex flex-col items-center">
                         <div className="text-[11px] font-medium invisible select-none">&nbsp;</div>
-                        <Button type="button" size="sm" variant="default" className="h-8 w-8 p-0" title="Add Vehicle" onClick={addVehicleRow}>
+                        <Button id="btn-add-vehicle" type="button" size="sm" variant="default" className="h-8 w-8 p-0" title="Add Vehicle" onClick={addVehicleRow}>
                           <Plus className="w-4 h-4" />
                         </Button>
                       </div>
@@ -861,7 +943,7 @@ export function CustomerMaster() {
                   Save &amp; Add Another
                 </Button>
               )}
-              <Button type="submit" form="customer-form" size="sm" disabled={saving}>
+              <Button id="btn-save-customer" type="submit" form="customer-form" size="sm" disabled={saving}>
                 {saving && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
                 {editingCustomer ? 'Update Customer' : 'Add Customer'}
               </Button>

@@ -1382,7 +1382,7 @@ export function CashCollection() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="w-5 h-5 animate-bounce" />
+              <AlertTriangle className="w-5 h-5" />
               Delete Collection Log Entry?
             </DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground mt-2">

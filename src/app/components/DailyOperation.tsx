@@ -11,7 +11,7 @@ import {
   IndianRupee,
   CreditCard,
   Droplet,
-  TestTube,
+  FlaskConical,
   Calendar,
   Save,
   Plus,
@@ -48,7 +48,7 @@ export function DailyOperation({ operationType = 'cash-collection' }: DailyOpera
       case 'own-usage':
         return Droplet;
       case 'fuel-testing':
-        return TestTube;
+        return FlaskConical;
       default:
         return Calendar;
     }
@@ -177,7 +177,7 @@ function CashCollectionForm() {
                   </div>
                   <div className="space-y-2">
                     <Label>Amount (₹)</Label>
-                    <Input type="number" placeholder="0.00" />
+                    <Input type="number" placeholder="0.00" onWheel={(e) => e.currentTarget.blur()} />
                   </div>
                   <div className="space-y-2">
                     <Label>Payment Mode</Label>
@@ -265,7 +265,7 @@ function CreditSalesForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="quantity">Quantity (Liters)</Label>
-              <Input id="quantity" type="number" placeholder="0.00" />
+              <Input id="quantity" type="number" placeholder="0.00" onWheel={(e) => e.currentTarget.blur()} />
             </div>
           </div>
 
@@ -273,11 +273,11 @@ function CreditSalesForm() {
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="unit-price">Unit Price (₹)</Label>
-              <Input id="unit-price" type="number" placeholder="0.00" />
+              <Input id="unit-price" type="number" placeholder="0.00" onWheel={(e) => e.currentTarget.blur()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="total-amount">Total Amount (₹)</Label>
-              <Input id="total-amount" type="number" placeholder="0.00" disabled />
+              <Input id="total-amount" type="number" placeholder="0.00" disabled onWheel={(e) => e.currentTarget.blur()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="credit-period">Credit Period (Days)</Label>
@@ -408,7 +408,7 @@ function OwnUsageForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="own-quantity">Quantity (Liters)</Label>
-              <Input id="own-quantity" type="number" placeholder="0.00" />
+              <Input id="own-quantity" type="number" placeholder="0.00" onWheel={(e) => e.currentTarget.blur()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="vehicle-no">Vehicle/Equipment No.</Label>
@@ -503,7 +503,7 @@ function FuelTestingForm() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TestTube className="w-5 h-5" />
+            <FlaskConical className="w-5 h-5" />
             Fuel Quality Testing
           </CardTitle>
         </CardHeader>
@@ -586,26 +586,26 @@ function FuelTestingForm() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="density">Density (kg/m³)</Label>
-                  <Input id="density" type="number" placeholder="830-890" />
+                  <Input id="density" type="number" placeholder="830-890" onWheel={(e) => e.currentTarget.blur()} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="temperature">Temperature (°C)</Label>
-                  <Input id="temperature" type="number" placeholder="15-30" />
+                  <Input id="temperature" type="number" placeholder="15-30" onWheel={(e) => e.currentTarget.blur()} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="flash-point">Flash Point (°C)</Label>
-                  <Input id="flash-point" type="number" placeholder="55-66" />
+                  <Input id="flash-point" type="number" placeholder="55-66" onWheel={(e) => e.currentTarget.blur()} />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="water-content">Water Content (%)</Label>
-                  <Input id="water-content" type="number" placeholder="0.00" step="0.01" />
+                  <Input id="water-content" type="number" placeholder="0.00" step="0.01" onWheel={(e) => e.currentTarget.blur()} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="sediment">Sediment (%)</Label>
-                  <Input id="sediment" type="number" placeholder="0.00" step="0.01" />
+                  <Input id="sediment" type="number" placeholder="0.00" step="0.01" onWheel={(e) => e.currentTarget.blur()} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="color">Color/Appearance</Label>

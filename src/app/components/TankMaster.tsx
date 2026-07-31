@@ -120,7 +120,7 @@ export function TankMaster() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this tank?')) {
+    if (confirm('⚠️ WARNING: Deleting this tank will soft-delete it to preserve its historical dip readings, but all active nozzles connected to this tank will be removed from the MPD configuration.\n\nAre you sure you want to delete this tank?')) {
       try {
         await deleteTankApi(id);
         toast.success('Tank deleted successfully.');

@@ -26,6 +26,8 @@ import { CustomerMaster } from './components/CustomerMaster';
 import { Expenses } from './components/Expenses';
 import { VoucherPayment } from './components/VoucherPayment';
 import { VoucherReceipt } from './components/VoucherReceipt';
+import { OwnUsage } from './components/OwnUsage';
+import { FuelTesting } from './components/FuelTesting';
 
 const reportTitles: Record<string, string> = {
   'daily-shift-report': 'Daily Shift Report',
@@ -94,8 +96,9 @@ export default function App() {
       case 'employee-assign':
         return <EmployeeAssign />;
       case 'own-usage':
+        return <OwnUsage />;
       case 'fuel-testing':
-        return <DailyOperation operationType={activeSection} />;
+        return <FuelTesting />;
       case 'density':
         return (
           <div className="p-8">

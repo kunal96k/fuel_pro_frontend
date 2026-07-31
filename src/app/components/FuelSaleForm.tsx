@@ -122,6 +122,7 @@ function MeterReadingTable() {
                       placeholder="0.00"
                       value={closingReadings[nozzle.srNo] || ''}
                       onChange={(e) => handleClosingReadingChange(nozzle.srNo, e.target.value)}
+                      onWheel={(e) => e.currentTarget.blur()}
                       className="h-9 text-sm w-32"
                     />
                   </td>
@@ -652,6 +653,7 @@ function CreditSalesTab({ mpdName }: { mpdName: string }) {
                     placeholder="0.00"
                     value={getDisplayQuantity()}
                     onChange={(e) => handleQuantityChange(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="border border-blue-200 focus:border-blue-400 text-right"
                   />
                 </div>
@@ -1048,6 +1050,7 @@ function OwnUseTab({ mpdName }: { mpdName: string }) {
                     placeholder="0.00"
                     value={formData.quantity}
                     onChange={(e) => setFormData({...formData, quantity: e.target.value})}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="border border-cyan-200 focus:border-cyan-400"
                     required
                   />
@@ -1510,6 +1513,7 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                     placeholder="0.00"
                     value={formData.amount}
                     onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="border border-green-200 focus:border-green-400"
                     required
                   />
@@ -2440,9 +2444,9 @@ function OilSaleTab() {
                             <SelectContent>{unitOptions.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
                           </Select>
                         </td>
-                        <td className="px-1.5 py-1"><Input type="number" value={item.quantity || ''} onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)} className="h-7 text-xs text-right w-16" /></td>
-                        <td className="px-1.5 py-1"><Input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} className="h-7 text-xs text-right w-20" /></td>
-                        <td className="px-1.5 py-1"><Input type="number" value={item.discountPct || ''} onChange={e => updateItem(idx, 'discountPct', parseFloat(e.target.value) || 0)} className="h-7 text-xs text-right w-16" /></td>
+                        <td className="px-1.5 py-1"><Input type="number" value={item.quantity || ''} onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)} onWheel={(e) => e.currentTarget.blur()} className="h-7 text-xs text-right w-16" /></td>
+                        <td className="px-1.5 py-1"><Input type="number" value={item.rate || ''} onChange={e => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)} onWheel={(e) => e.currentTarget.blur()} className="h-7 text-xs text-right w-20" /></td>
+                        <td className="px-1.5 py-1"><Input type="number" value={item.discountPct || ''} onChange={e => updateItem(idx, 'discountPct', parseFloat(e.target.value) || 0)} onWheel={(e) => e.currentTarget.blur()} className="h-7 text-xs text-right w-16" /></td>
                         <td className="px-2 py-1 text-right font-medium text-red-500">{item.discountRs > 0 ? item.discountRs.toFixed(2) : '—'}</td>
                         <td className="px-2 py-1 text-right font-medium">{item.taxableValue.toFixed(2)}</td>
                         <td className="px-1.5 py-1">

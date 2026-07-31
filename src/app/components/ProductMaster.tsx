@@ -105,11 +105,12 @@ export function ProductMaster() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this product?')) {
+    if (confirm('⚠️ WARNING: Deleting this product will soft-delete it and its associated tanks to preserve rate and dip history, but active nozzles connected to those tanks will be removed from the MPD configuration.\n\nAre you sure you want to delete this product?')) {
       try {
         await deleteProductApi(id);
-      } catch (err) {
-        console.warn('API delete failed, updating UI locally');
+        toast.success('Product deleted successfully.');
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to delete product.');
       }
       loadProducts();
     }

@@ -1127,3 +1127,394 @@ export async function fetchNextCustomerCode(): Promise<string> {
   const data = await res.json();
   return data.code;
 }
+
+export async function checkCustomerUnique(field: string, value: string, excludeId?: string): Promise<boolean> {
+  const query = new URLSearchParams({ field, value });
+  if (excludeId) query.set('excludeId', excludeId);
+  const res = await fetch(`${API_BASE_URL}/customers/check-unique?${query.toString()}`);
+  if (!res.ok) return true; // fallback to true if validation endpoint fails for safety
+  const data = await res.json();
+  return Boolean(data.isUnique);
+}
+
+export async function checkVehicleUnique(field: string, value: string, excludeId?: string): Promise<boolean> {
+  const query = new URLSearchParams({ field, value });
+  if (excludeId) query.set('excludeId', excludeId);
+  const res = await fetch(`${API_BASE_URL}/vehicles/check-unique?${query.toString()}`);
+  if (!res.ok) return true; // fallback to true if validation endpoint fails for safety
+  const data = await res.json();
+  return Boolean(data.isUnique);
+}
+
+// --- Credit Sale Interfaces ---
+export interface CreditSale {
+  id: string;
+  date: string;
+  saleTime: string;
+  customerName: string;
+  vehicleNo: string;
+  voucherNo: string;
+  slipNo: string;
+  productCategory: string;
+  productName: string;
+  productUnit: string;
+  quantity: number;
+  rate: number;
+  totalAmount: number;
+  mpdName: string;
+  nozzleName: string;
+  status: 'Pending' | 'Completed';
+  createdAt?: string;
+}
+
+export interface CreditSaleQueryParams {
+  search?: string;
+  category?: string;
+  status?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: string;
+}
+
+// --- Credit Sale API ---
+export async function fetchCreditSales(params: CreditSaleQueryParams = {}): Promise<PaginatedResponse<CreditSale>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.category) query.set('category', params.category);
+  if (params.status) query.set('status', params.status);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/credit-sales?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    date: item.date,
+    saleTime: item.saleTime,
+    customerName: item.customerName,
+    vehicleNo: item.vehicleNo,
+    voucherNo: item.voucherNo,
+    slipNo: item.slipNo,
+    productCategory: item.productCategory,
+    productName: item.productName,
+    productUnit: item.productUnit,
+    quantity: Number(item.quantity),
+    rate: Number(item.rate),
+    totalAmount: Number(item.totalAmount),
+    mpdName: item.mpdName,
+    nozzleName: item.nozzleName,
+    status: item.status,
+    createdAt: item.createdAt,
+  }));
+}
+
+export async function createCreditSaleApi(payload: Omit<CreditSale, 'id' | 'voucherNo' | 'slipNo'>): Promise<CreditSale> {
+  const res = await fetch(`${API_BASE_URL}/credit-sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create credit sale: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateCreditSaleApi(id: string, payload: Omit<CreditSale, 'id' | 'voucherNo' | 'slipNo'>): Promise<CreditSale> {
+  const res = await fetch(`${API_BASE_URL}/credit-sales/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update credit sale: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteCreditSaleApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/credit-sales/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete credit sale: ${res.statusText}`);
+}
+
+export async function fetchNextVoucherNo(): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/credit-sales/next-voucher`);
+  if (!res.ok) throw new Error(`Failed to fetch next voucher code: ${res.statusText}`);
+  const data = await res.json();
+  return data.voucherNo;
+}
+
+export async function fetchNextSlipNo(date: string): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/credit-sales/next-slip?date=${date}`);
+  if (!res.ok) throw new Error(`Failed to fetch next slip code: ${res.statusText}`);
+  const data = await res.json();
+  return data.slipNo;
+}
+
+export async function fetchLatestOrDateRates(date: string): Promise<Record<string, number>> {
+  const res = await fetch(`${API_BASE_URL}/fuel-rates/latest-or-date?date=${date}`);
+  if (!res.ok) throw new Error(`Failed to fetch fuel rates: ${res.statusText}`);
+  return await res.json();
+}
+
+// --- Own Usage Interfaces ---
+export interface OwnUsageRecord {
+  id: string;
+  slipNo: string;
+  date: string;
+  usageTime: string;
+  vehicleNumber: string;
+  vehicleType: string;
+  fuelType: string;
+  productCategory: string;
+  productName: string;
+  productUnit: string;
+  quantity: number;
+  rate: number;
+  totalAmount: number;
+  mpdName: string;
+  nozzleName: string;
+  purpose: string;
+  remarks: string;
+  status: 'Pending' | 'Completed';
+  authorizedBy?: string;
+  approvedBy?: string;
+  createdAt?: string;
+}
+
+export interface OwnUsageQueryParams {
+  search?: string;
+  category?: string;
+  status?: string;
+  purpose?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: string;
+}
+
+// --- Own Usage API ---
+export async function fetchOwnUsages(params: OwnUsageQueryParams = {}): Promise<PaginatedResponse<OwnUsageRecord>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.category) query.set('category', params.category);
+  if (params.status) query.set('status', params.status);
+  if (params.purpose) query.set('purpose', params.purpose);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/own-usages?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    slipNo: item.slipNo,
+    date: item.date,
+    usageTime: item.usageTime,
+    vehicleNumber: item.vehicleNumber,
+    vehicleType: item.vehicleType,
+    fuelType: item.fuelType,
+    productCategory: item.productCategory,
+    productName: item.productName,
+    productUnit: item.productUnit,
+    quantity: Number(item.quantity),
+    rate: Number(item.rate),
+    totalAmount: Number(item.totalAmount),
+    mpdName: item.mpdName,
+    nozzleName: item.nozzleName,
+    purpose: item.purpose,
+    remarks: item.remarks,
+    status: item.status,
+    authorizedBy: item.authorizedBy || '',
+    approvedBy: item.approvedBy || '',
+    createdAt: item.createdAt,
+  }));
+}
+
+export async function createOwnUsageApi(payload: Omit<OwnUsageRecord, 'id' | 'slipNo'>): Promise<OwnUsageRecord> {
+  const res = await fetch(`${API_BASE_URL}/own-usages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create own usage record: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateOwnUsageApi(id: string, payload: Omit<OwnUsageRecord, 'id' | 'slipNo'>): Promise<OwnUsageRecord> {
+  const res = await fetch(`${API_BASE_URL}/own-usages/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update own usage record: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteOwnUsageApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/own-usages/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to delete own usage record: ${res.statusText}`);
+  }
+}
+
+export async function fetchNextOwnUsageSlipApi(date: string): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/own-usages/next-slip?date=${date}`);
+  if (!res.ok) throw new Error(`Failed to fetch next slip code: ${res.statusText}`);
+  const data = await res.json();
+  return data.slipNo;
+}
+
+// --- Fuel Testing Interfaces ---
+export interface FuelTestRecord {
+  id: string;
+  testReportNo: string;
+  testDate: string;
+  testTime: string;
+  testedBy: string;
+  fuelType: 'Petrol' | 'Diesel';
+  tankNo: string;
+  density: number;
+  temperature: number;
+  flashPoint?: number;
+  waterContent: number;
+  sediment: number;
+  color: 'Clear' | 'Slightly Turbid' | 'Turbid' | 'Contaminated';
+  testResult: 'Pass' | 'Fail' | 'Warning';
+  remarks: string;
+  authorizedBy: string;
+  approvedBy: string;
+  testEquipmentNo: string;
+  referenceStandard: string;
+  createdAt?: string;
+}
+
+export interface FuelTestQueryParams {
+  search?: string;
+  fuelType?: string;
+  testResult?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: string;
+}
+
+// --- Fuel Testing API ---
+export async function fetchFuelTests(params: FuelTestQueryParams = {}): Promise<PaginatedResponse<FuelTestRecord>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.fuelType) query.set('fuelType', params.fuelType);
+  if (params.testResult) query.set('testResult', params.testResult);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/fuel-tests?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    testReportNo: item.testReportNo || '',
+    testDate: item.testDate,
+    testTime: item.testTime,
+    testedBy: item.testedBy,
+    fuelType: item.fuelType,
+    tankNo: item.tankNo,
+    density: Number(item.density),
+    temperature: Number(item.temperature),
+    flashPoint: item.flashPoint != null ? Number(item.flashPoint) : undefined,
+    waterContent: Number(item.waterContent),
+    sediment: Number(item.sediment),
+    color: item.color,
+    testResult: item.testResult,
+    remarks: item.remarks || '',
+    authorizedBy: item.authorizedBy || '',
+    approvedBy: item.approvedBy || '',
+    testEquipmentNo: item.testEquipmentNo || '',
+    referenceStandard: item.referenceStandard || '',
+    createdAt: item.createdAt,
+  }));
+}
+
+export async function createFuelTestApi(payload: Omit<FuelTestRecord, 'id' | 'testReportNo'>): Promise<FuelTestRecord> {
+  const res = await fetch(`${API_BASE_URL}/fuel-tests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create fuel test record: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateFuelTestApi(id: string, payload: Omit<FuelTestRecord, 'id'>): Promise<FuelTestRecord> {
+  const res = await fetch(`${API_BASE_URL}/fuel-tests/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update fuel test record: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteFuelTestApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/fuel-tests/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to delete fuel test record: ${res.statusText}`);
+  }
+}
+
+export async function fetchNextFuelTestReportNoApi(date: string): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/fuel-tests/next-report-no?date=${date}`);
+  if (!res.ok) throw new Error(`Failed to fetch next report number: ${res.statusText}`);
+  const data = await res.json();
+  return data.reportNo;
+}
+
+

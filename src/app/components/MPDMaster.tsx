@@ -86,7 +86,23 @@ export function MPDMaster() {
       mpdName: mpd.mpdName,
       numberOfNozzles: mpd.numberOfNozzles.toString(),
     });
-    setNozzleData(mpd.nozzles);
+    
+    // Auto-populate / pad nozzle list if database records are missing or deleted
+    const nozzles = mpd.nozzles || [];
+    const paddedNozzles: Nozzle[] = [];
+    for (let i = 0; i < mpd.numberOfNozzles; i++) {
+      if (nozzles[i]) {
+        paddedNozzles.push(nozzles[i]);
+      } else {
+        paddedNozzles.push({
+          id: (i + 1).toString(),
+          nozzleName: `Nozzle ${i + 1}`,
+          fuelType: '',
+          connectedTank: '',
+        });
+      }
+    }
+    setNozzleData(paddedNozzles);
     setEditingMPD(mpd);
     setShowAddDialog(true);
   };

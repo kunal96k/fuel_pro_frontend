@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight, Eye, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,9 +7,19 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Checkbox } from './ui/checkbox';
 import { toast } from 'sonner';
-import { fetchVehicles, createVehicleApi, updateVehicleApi, deleteVehicleApi, Vehicle, formatDateToDMY, fetchProducts, Product } from '../services/api';
+import { fetchVehicles, createVehicleApi, updateVehicleApi, deleteVehicleApi, Vehicle, formatDateToDMY, fetchProducts, Product, checkVehicleUnique } from '../services/api';
 
 
+
+/** Format vehicle plates to standard pattern (e.g. MH-67-63-4322) */
+function formatVehicleNumber(raw: string): string {
+  const clean = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const g1 = clean.slice(0, 2);
+  const g2 = clean.slice(2, 4);
+  const g3 = clean.slice(4, 6);
+  const g4 = clean.slice(6, 10);
+  return [g1, g2, g3, g4].filter(g => g.length > 0).join('-');
+}
 
 export function VehiclesMaster() {
   const isExpired = (dateStr?: string) => {
@@ -40,6 +50,10 @@ export function VehiclesMaster() {
   const [showViewDialog, setShowViewDialog] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [viewingVehicle, setViewingVehicle] = useState<Vehicle | null>(null);
+
+  const [isNumUnique, setIsNumUnique] = useState(true);
+  const [checkingNum, setCheckingNum] = useState(false);
+
   const [formData, setFormData] = useState({
     vehicleNumber: '',
     vehicleType: '',
@@ -56,6 +70,29 @@ export function VehiclesMaster() {
     pucExpiry: '',
     status: 'Active',
   });
+
+  useEffect(() => {
+    if (!formData.vehicleNumber || formData.vehicleNumber.trim().length < 4) {
+      setIsNumUnique(true);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setCheckingNum(true);
+      try {
+        const unique = await checkVehicleUnique(
+          'vehicleNumber',
+          formData.vehicleNumber,
+          editingVehicle?.id ? String(editingVehicle.id) : undefined
+        );
+        setIsNumUnique(unique);
+      } catch {
+        setIsNumUnique(true);
+      } finally {
+        setCheckingNum(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [formData.vehicleNumber, editingVehicle]);
 
   const loadVehicles = async () => {
     setLoading(true);
@@ -134,6 +171,7 @@ export function VehiclesMaster() {
       status: 'Active',
     });
     setEditingVehicle(null);
+    setIsNumUnique(true);
     setShowAddDialog(true);
   };
 
@@ -155,6 +193,7 @@ export function VehiclesMaster() {
       status: vehicle.status,
     });
     setEditingVehicle(vehicle);
+    setIsNumUnique(true);
     setShowAddDialog(true);
   };
 
@@ -180,8 +219,13 @@ export function VehiclesMaster() {
       return;
     }
 
+    if (!isNumUnique) {
+      toast.error('Vehicle number is already registered');
+      return;
+    }
+
     const payload = {
-      vehicleNumber: formData.vehicleNumber.trim(),
+      vehicleNumber: formatVehicleNumber(formData.vehicleNumber),
       vehicleType: formData.vehicleType,
       make: formData.make.trim(),
       model: formData.model.trim(),
@@ -374,7 +418,7 @@ export function VehiclesMaster() {
                   const VehicleIcon = getVehicleIcon(vehicle.vehicleType);
                   return (
                     <tr key={vehicle.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-4 font-mono font-medium">{vehicle.vehicleNumber}</td>
+                      <td className="p-4 font-mono font-medium">{formatVehicleNumber(vehicle.vehicleNumber)}</td>
                       <td className="p-4">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
                           <VehicleIcon className="w-3.5 h-3.5" />
@@ -494,9 +538,14 @@ export function VehiclesMaster() {
                 <Input
                   id="vehicleNumber"
                   value={formData.vehicleNumber}
-                  onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
+                  onChange={(e) => setFormData({ ...formData, vehicleNumber: formatVehicleNumber(e.target.value) })}
                   placeholder="Enter vehicle number"
                 />
+                {!isNumUnique && (
+                  <p className="text-[11px] text-red-500 font-medium mt-0.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-500" /> This vehicle number is already registered.
+                  </p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="vehicleType">Vehicle Type <span className="text-red-500">*</span></Label>
