@@ -308,12 +308,12 @@ export function EmployeeAssign() {
   const closedMpdNames = [...new Set(currentAssignments.filter(a => a.status === 'Closed').map(a => a.mpdName || a.mpdId))];
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-8 space-y-6">
       {/* ---- Header ---- */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Employee Assignment</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="mb-2">Employee Assignment</h1>
+          <p className="text-muted-foreground">
             Assign employees to MPD nozzles per shift and date
           </p>
         </div>
@@ -388,92 +388,90 @@ export function EmployeeAssign() {
       </div>
 
       {/* ---- Current Assignments Table ---- */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-muted/30">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm">
-              {formatDateToDMY(selectedDate)} — {selectedShift ? `${selectedShift.shiftName} (${selectedShift.startTime}–${selectedShift.endTime})` : 'No shift selected'}
+              Duty Records: {formatDateToDMY(selectedDate)} — {selectedShift ? `${selectedShift.shiftName} (${selectedShift.startTime}–${selectedShift.endTime})` : 'No shift selected'}
             </span>
           </div>
           {currentAssignments.length > 0 && (
-            <Badge variant="secondary" className="text-xs">
-              {currentAssignments.length} nozzle{currentAssignments.length !== 1 ? 's' : ''}
-            </Badge>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">
+              {currentAssignments.length} nozzle{currentAssignments.length !== 1 ? 's' : ''} configured
+            </span>
           )}
         </div>
 
         {loadingAssignments ? (
           <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Loading assignments…
+            <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            Loading duty records...
           </div>
         ) : currentAssignments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-            <Users className="w-10 h-10 opacity-20" />
-            <p className="text-sm">No assignments for this date & shift.</p>
-            {mpds.length === 0 && (
+            <Users className="w-12 h-12 opacity-20" />
+            <p className="text-sm font-medium">No duty assignments recorded for this date &amp; shift</p>
+            {mpds.length === 0 ? (
               <p className="text-xs text-amber-500">Please configure MPDs in MPD Master first.</p>
-            )}
-            {mpds.length > 0 && (
-              <Button size="sm" variant="outline" onClick={openAssignModal} className="mt-1">
+            ) : (
+              <Button size="sm" onClick={openAssignModal} className="mt-1 gap-2">
+                <Users className="w-4 h-4" />
                 Assign Employees Now
               </Button>
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/20">
-                  <th className="w-14 text-center px-3 py-3 font-medium text-muted-foreground">S.No</th>
-                  <th className="text-left px-5 py-3 font-medium text-muted-foreground">Employee</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Code</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Designation</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nozzles</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr>
+                  <th className="w-16 text-left p-4 font-medium text-muted-foreground">S.No</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">Employee</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">Code</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">Designation</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">MPD</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">Assigned Nozzles</th>
+                  <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {summaryRows.length > 0 ? summaryRows.map((row, idx) => (
-                  <tr key={row.empId} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
-                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                  <tr key={row.empId} className="hover:bg-muted/30 transition-colors">
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
                       {idx + 1}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="p-4">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8 text-xs">
                           <AvatarImage src={getPhotoUrl(row.empPhoto)} />
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                          <AvatarFallback className="bg-primary/10 text-primary font-medium text-xs">
                             {initials(row.empName)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-medium">{row.empName}</span>
+                        <span className="font-medium text-foreground">{row.empName}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{row.empCode}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.empDesignation}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="secondary" className="text-xs font-mono">{row.mpdName}</Badge>
+                    <td className="p-4 font-mono text-sm text-foreground">{row.empCode}</td>
+                    <td className="p-4 text-muted-foreground">{row.empDesignation}</td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">{row.mpdName}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1.5">
                         {row.rows.map(r => (
-                          <span key={r.nozzleId} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${fuelBadge(r.fuelType)}`}>
+                          <span key={r.nozzleId} className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${fuelBadge(r.fuelType)}`}>
                             {r.nozzleName}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                        row.status === 'Completed' ? 'text-slate-500' :
-                        row.status === 'Pending' ? 'text-amber-500' :
-                        row.status === 'On Break' ? 'text-blue-500' :
-                        'text-emerald-600'
-                      }`}>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
+                    <td className="p-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${row.status === 'Completed' ? 'bg-slate-500/10 text-slate-500' :
+                          row.status === 'Pending' ? 'bg-amber-500/10 text-amber-500' :
+                            row.status === 'On Break' ? 'bg-blue-500/10 text-blue-500' :
+                              'bg-green-500/10 text-green-500'
+                        }`}>
                         {row.status}
                       </span>
                     </td>
@@ -482,24 +480,23 @@ export function EmployeeAssign() {
 
                 {/* Unassigned nozzle rows */}
                 {currentAssignments.filter(a => !a.employeeId && a.status !== 'Closed').map((a, idx) => (
-                  <tr key={a.id} className="border-b border-border/60 bg-amber-50/30 dark:bg-amber-900/10">
-                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                  <tr key={a.id} className="hover:bg-muted/30 transition-colors bg-amber-500/5">
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
                       {summaryRows.length + idx + 1}
                     </td>
-                    <td className="px-5 py-3 text-muted-foreground italic text-xs">Unassigned</td>
-                    <td className="px-4 py-3">—</td>
-                    <td className="px-4 py-3">—</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="secondary" className="text-xs font-mono">{a.mpdName || a.mpdId}</Badge>
+                    <td className="p-4 text-muted-foreground italic">Unassigned</td>
+                    <td className="p-4 text-muted-foreground">—</td>
+                    <td className="p-4 text-muted-foreground">—</td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">{a.mpdName || a.mpdId}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full border ${fuelBadge(a.fuelType)}`}>
+                    <td className="p-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${fuelBadge(a.fuelType)}`}>
                         {a.nozzleName || a.nozzleId}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-xs text-amber-500 font-medium">
-                        <AlertTriangle className="w-3.5 h-3.5" />
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500">
                         Unassigned
                       </span>
                     </td>
@@ -508,19 +505,19 @@ export function EmployeeAssign() {
 
                 {/* Closed MPDs rows */}
                 {closedMpdNames.map((name, idx) => (
-                  <tr key={`closed-${name}`} className="border-b border-border/60 bg-slate-50/50 dark:bg-slate-900/10 text-muted-foreground">
-                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                  <tr key={`closed-${name}`} className="hover:bg-muted/30 transition-colors text-muted-foreground">
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
                       {summaryRows.length + currentAssignments.filter(a => !a.employeeId && a.status !== 'Closed').length + idx + 1}
                     </td>
-                    <td className="px-5 py-3 italic text-xs">Closed / Not Working</td>
-                    <td className="px-4 py-3">—</td>
-                    <td className="px-4 py-3">—</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="text-xs font-mono opacity-60">{name}</Badge>
+                    <td className="p-4 italic">Closed / Not Working</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground font-mono">{name}</span>
                     </td>
-                    <td className="px-4 py-3">—</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium opacity-70">
+                    <td className="p-4">—</td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
                         Closed for Shift
                       </span>
                     </td>
@@ -538,95 +535,100 @@ export function EmployeeAssign() {
       <Dialog open={showAssignModal} onOpenChange={setShowAssignModal}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
-          style={{ maxWidth: '90vw', width: '90vw', height: '92vh', maxHeight: '92vh' }}
+          style={{ maxWidth: '1200px', width: '92vw', height: '90vh', maxHeight: '90vh' }}
         >
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-lg">
-              <Users className="w-5 h-5 text-primary" />
+          <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-lg font-semibold">
+              <Users className="w-5 h-5 text-blue-600" />
               Assign Employees
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              {formatDateToDMY(selectedDate)} — {selectedShift?.shiftName} ({selectedShift?.startTime}–{selectedShift?.endTime})
-              &nbsp;·&nbsp; Each employee can only work one MPD per shift
-            </DialogDescription>
           </DialogHeader>
 
           <div className="overflow-y-auto custom-scrollbar flex-1 p-6 space-y-5">
             {/* Modal Date Selector */}
-            <div className="bg-muted/30 border border-border rounded-lg p-3.5 flex flex-wrap items-center gap-3">
-              <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+            <div className="bg-muted/30 border border-blue-100 dark:border-border rounded-lg p-3.5 flex flex-wrap items-center gap-3">
+              <CalendarIcon className="w-4 h-4 text-blue-600" />
               <label className="text-xs font-semibold text-muted-foreground">Assigning Date:</label>
               <input
                 type="date"
                 value={assignModalDate}
                 onChange={e => setAssignModalDate(e.target.value)}
-                className="w-32 h-8 rounded border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="w-36 h-8 rounded border border-blue-200 focus:border-blue-400 bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400/20 font-medium"
               />
               {loadingModalAssignments && (
                 <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1.5 animate-pulse">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Loading assignments...
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-600" /> Loading assignments...
                 </span>
               )}
             </div>
 
             {mpds.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-                <Fuel className="w-12 h-12 opacity-20" />
+                <Fuel className="w-12 h-12 opacity-20 text-blue-600" />
                 <p className="text-sm font-medium">No MPDs configured</p>
                 <p className="text-xs">Please add MPDs in the MPD Master section first.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {mpds.map(mpd => (
-                  <div key={mpd.id} className="border border-border rounded-xl overflow-hidden bg-card">
-                    {/* MPD Header */}
-                    <div className="flex items-center gap-2 px-4 py-3 bg-muted/40 border-b border-border">
-                      <Fuel className="w-4 h-4 text-primary" />
-                      <span className="font-semibold text-sm">{mpd.mpdName}</span>
-                      <div className="ml-auto flex items-center gap-3">
-                        <div className="flex items-center gap-1.5 bg-background px-2 py-0.5 rounded border border-border">
+                  <div key={mpd.id} className="space-y-3 border border-border rounded-xl p-4 bg-card shadow-sm">
+                    {/* MPD Header Badge */}
+                    <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                      <div className="flex items-center gap-2">
+                        <Fuel className="w-4 h-4 text-blue-600" />
+                        <Badge variant="secondary" className="text-sm px-2.5 py-0.5 bg-secondary text-secondary-foreground font-semibold">
+                          {mpd.mpdName}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-md border border-border">
                           <input
                             id={`op-${mpd.id}`}
                             type="checkbox"
                             checked={!isMpdClosed(mpd.id)}
                             onChange={(e) => handleToggleMpdOperational(mpd.id, e.target.checked)}
-                            className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary/50 cursor-pointer"
+                            className="h-3.5 w-3.5 rounded border-border text-blue-600 focus:ring-blue-400/50 cursor-pointer"
                           />
                           <label htmlFor={`op-${mpd.id}`} className="text-xs font-medium text-muted-foreground select-none cursor-pointer">
                             Active
                           </label>
                         </div>
-                        <Badge variant="outline" className="text-xs">
+                        <span className="text-xs text-muted-foreground font-medium">
                           {mpd.numberOfNozzles} nozzles
-                        </Badge>
+                        </span>
                       </div>
                     </div>
 
                     {/* Nozzle rows */}
-                    <div className="divide-y divide-border/60">
+                    <div className="grid gap-2.5 pt-1">
                       {mpd.nozzles.map(nozzle => {
                         const isClosed = isMpdClosed(mpd.id);
                         const selectedEmpId = draft[mpd.id]?.[nozzle.id]?.employeeId || '';
                         const selectedStatus = draft[mpd.id]?.[nozzle.id]?.status || 'Active';
                         const conflict = conflictingMpdFor(selectedEmpId, mpd.id, nozzle.id);
 
-                        // Get employees already used in another MPD (for conflict detection)
                         const takenInOtherMpds = new Set<string>();
                         for (const [mId, nozzles] of Object.entries(draft)) {
                           if (mId === mpd.id) continue;
                           Object.values(nozzles).forEach(obj => { if (obj.employeeId) takenInOtherMpds.add(obj.employeeId); });
                         }
 
-                        return (
-                          <div key={nozzle.id} className={`px-4 py-3 flex items-center gap-3 ${isClosed ? 'bg-muted/20 opacity-60' : ''}`}>
-                            <div className="w-20 shrink-0">
-                              <p className="text-xs font-medium">{nozzle.nozzleName}</p>
-                              <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded border ${fuelBadge(nozzle.fuelType)}`}>
-                                {nozzle.fuelType || 'N/A'}
-                              </span>
-                            </div>
+                        const isPetrol = nozzle.fuelType?.toLowerCase().includes('petrol') || nozzle.fuelType?.toLowerCase().includes('gasoline');
 
-                            <div className="flex-1 min-w-0">
+                        return (
+                          <div key={nozzle.id} className={`flex items-center gap-3 p-2.5 border border-border/70 rounded-lg bg-muted/30 hover:bg-muted/40 transition-colors ${isClosed ? 'opacity-50' : ''}`}>
+                            <div className="text-xs font-semibold w-20 shrink-0 text-foreground">{nozzle.nozzleName}</div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[11px] px-2 shrink-0 font-medium ${isPetrol
+                                  ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800'
+                                  : 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800'
+                                }`}
+                            >
+                              {nozzle.fuelType || 'Fuel'}
+                            </Badge>
+
+                            <div className="flex-1 min-w-[160px]">
                               <Select
                                 value={selectedEmpId || 'NONE'}
                                 disabled={isClosed}
@@ -643,8 +645,8 @@ export function EmployeeAssign() {
                                   }));
                                 }}
                               >
-                                <SelectTrigger className={`h-8 text-xs ${conflict ? 'border-red-400 focus:ring-red-400/30' : ''}`}>
-                                  <SelectValue placeholder={isClosed ? '— Closed —' : 'Select employee…'} />
+                                <SelectTrigger className={`h-8 text-xs border border-blue-200 focus:border-blue-400 ${conflict ? 'border-red-400 focus:ring-red-400/30' : ''}`}>
+                                  <SelectValue placeholder={isClosed ? '— Closed —' : 'Select employee'} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="NONE">
@@ -670,7 +672,7 @@ export function EmployeeAssign() {
                               </Select>
 
                               {conflict && (
-                                <p className="text-[10px] text-red-500 mt-0.5 flex items-center gap-1">
+                                <p className="text-[10px] text-red-500 mt-0.5 flex items-center gap-1 font-medium">
                                   <AlertTriangle className="w-3 h-3" />
                                   Already assigned to {conflict}
                                 </p>
@@ -695,7 +697,7 @@ export function EmployeeAssign() {
                                   }));
                                 }}
                               >
-                                <SelectTrigger className="h-8 text-xs">
+                                <SelectTrigger className="h-8 text-xs border border-blue-200 focus:border-blue-400">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -721,9 +723,9 @@ export function EmployeeAssign() {
             <Button variant="outline" size="sm" onClick={() => setShowAssignModal(false)}>
               Cancel
             </Button>
-            <Button size="sm" className="gap-2 min-w-[100px]" onClick={handleSave} disabled={saving || mpds.length === 0}>
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-2 min-w-[100px]" onClick={handleSave} disabled={saving || mpds.length === 0}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? 'Saving…' : 'Save Assignments'}
+              {saving ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </DialogContent>
@@ -742,9 +744,6 @@ export function EmployeeAssign() {
               <History className="w-5 h-5 text-primary" />
               Employee Assignment Duty Records
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              Historical duty allocations and logs — {historyTotalElements.toLocaleString()} records found
-            </DialogDescription>
           </DialogHeader>
 
           {/* Filters */}
@@ -846,12 +845,11 @@ export function EmployeeAssign() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                          r.status === 'Completed' ? 'text-slate-500' :
-                          r.status === 'Pending' ? 'text-amber-500' :
-                          r.status === 'On Break' ? 'text-blue-500' :
-                          'text-emerald-600'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${r.status === 'Completed' ? 'text-slate-500' :
+                            r.status === 'Pending' ? 'text-amber-500' :
+                              r.status === 'On Break' ? 'text-blue-500' :
+                                'text-emerald-600'
+                          }`}>
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           {r.status || 'Active'}
                         </span>

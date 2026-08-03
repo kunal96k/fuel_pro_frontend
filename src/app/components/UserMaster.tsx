@@ -717,7 +717,6 @@ export function UserMaster() {
               <User className="w-5 h-5 text-sky-500" />
               User Details
             </DialogTitle>
-            <DialogDescription>Full profile and session information</DialogDescription>
           </DialogHeader>
           {viewingUser && (
             <div className="space-y-4 py-2">

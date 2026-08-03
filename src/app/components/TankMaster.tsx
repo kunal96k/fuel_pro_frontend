@@ -14,7 +14,7 @@ export function TankMaster() {
   const [tanks, setTanks] = useState<Tank[]>([]);
   const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  
+
   // Pagination, Filter, Search, Sort states
   const [page, setPage] = useState<number>(0);
   const [pageSize, setPageSize] = useState<number>(10);
@@ -139,7 +139,7 @@ export function TankMaster() {
 
     const duplicate = tanks.find(
       t => t.tankName.trim().toLowerCase() === formData.tankName.trim().toLowerCase() &&
-      (!editingTank || t.id !== editingTank.id)
+        (!editingTank || t.id !== editingTank.id)
     );
     if (duplicate) {
       toast.warning(`Tank with name "${formData.tankName}" already exists!`);
@@ -307,22 +307,20 @@ export function TankMaster() {
                     <tr key={tank.id} className="hover:bg-muted/30 transition-colors">
                       <td className="p-4 font-medium">{tank.tankName}</td>
                       <td className="p-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          tank.fuelType?.toLowerCase().includes('petrol') ? 'bg-green-500/10 text-green-500' :
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${tank.fuelType?.toLowerCase().includes('petrol') ? 'bg-green-500/10 text-green-500' :
                           tank.fuelType?.toLowerCase().includes('diesel') ? 'bg-blue-500/10 text-blue-500' :
-                          'bg-purple-500/10 text-purple-500'
-                        }`}>
+                            'bg-purple-500/10 text-purple-500'
+                          }`}>
                           {tank.fuelType}
                         </span>
                       </td>
                       <td className="p-4 text-right">{formatNumber(tank.capacity)}</td>
                       <td className="p-4 text-right">{formatNumber(tank.openingQuantity)}</td>
                       <td className="p-4 text-right">
-                        <span className={`font-medium ${
-                          parseFloat(availablePercent) < 20 ? 'text-red-500' :
+                        <span className={`font-medium ${parseFloat(availablePercent) < 20 ? 'text-red-500' :
                           parseFloat(availablePercent) < 50 ? 'text-amber-500' :
-                          'text-green-500'
-                        }`}>
+                            'text-green-500'
+                          }`}>
                           {availablePercent}%
                         </span>
                       </td>

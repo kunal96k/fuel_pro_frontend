@@ -732,7 +732,6 @@ export function VehiclesMaster() {
               <Car className="w-5 h-5 text-sky-500" />
               Vehicle Details
             </DialogTitle>
-            <DialogDescription>Full registration and technical specifications</DialogDescription>
           </DialogHeader>
           {viewingVehicle && (
             <div className="space-y-4 py-2 text-sm">

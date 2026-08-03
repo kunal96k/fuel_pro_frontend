@@ -311,7 +311,6 @@ export function VoucherReceipt() {
         <DialogContent className="w-screen h-screen max-w-none max-h-none rounded-none flex flex-col overflow-hidden">
           <DialogHeader className="shrink-0">
             <DialogTitle>{editRecord ? 'Edit Receipt Voucher' : 'New Receipt Voucher'}</DialogTitle>
-            <DialogDescription>Record a payment received from a customer against credit fuel or oil sale.</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-5 py-2 px-1">

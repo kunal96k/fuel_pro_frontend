@@ -219,13 +219,13 @@ export function CashCollection() {
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case 'completed':
-        return <Badge variant="outline" className="bg-blue-50/80 text-blue-700 border-blue-200 text-xs">Completed</Badge>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">Completed</span>;
       case 'verified':
-        return <Badge variant="default" className="bg-green-50/80 text-green-700 border-green-200 text-xs">Verified</Badge>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500">Verified</span>;
       case 'pending':
-        return <Badge variant="outline" className="bg-amber-50/80 text-amber-700 border-amber-200 text-xs">Pending</Badge>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500">Pending</span>;
       default:
-        return <Badge variant="outline" className="text-xs">{status}</Badge>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">{status}</span>;
     }
   };
 
@@ -675,180 +675,181 @@ export function CashCollection() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Cash Collection</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Log shift cash collections, denomination splits, and verification statuses
-          </p>
+          <h1 className="mb-2">Cash Collection</h1>
+          <p className="text-muted-foreground">Log shift cash collections, denomination splits, and verification statuses</p>
         </div>
-        <Button onClick={handleAddNewClick} className="gap-2" size="sm">
+        <Button onClick={handleAddNewClick} className="gap-2">
           <Plus className="w-4 h-4" />
           Log Collection
         </Button>
       </div>
 
       {/* Stats Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100">
-            <IndianRupee className="w-5 h-5 text-blue-600" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
+            <IndianRupee className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-2xl font-bold font-mono">{formatCurrency(stats.totalAmount)}</p>
+            <p className="text-xl font-bold font-mono">{formatCurrency(stats.totalAmount)}</p>
             <p className="text-xs text-muted-foreground">Total Collection</p>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-100">
-            <CalendarDays className="w-5 h-5 text-sky-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
+            <CalendarDays className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-2xl font-bold font-mono">{stats.totalEntries}</p>
+            <p className="text-xl font-bold font-mono">{stats.totalEntries}</p>
             <p className="text-xs text-muted-foreground">Total Logs</p>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100">
-            <TrendingUp className="w-5 h-5 text-emerald-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-green-500/10 text-green-500">
+            <TrendingUp className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-2xl font-bold font-mono">{stats.verifiedCount}</p>
+            <p className="text-xl font-bold font-mono">{stats.verifiedCount}</p>
             <p className="text-xs text-muted-foreground">Verified Logs</p>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100">
-            <Coins className="w-5 h-5 text-purple-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+            <Coins className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-2xl font-bold font-mono">{formatCurrency(stats.avgCollection)}</p>
+            <p className="text-xl font-bold font-mono">{formatCurrency(stats.avgCollection)}</p>
             <p className="text-xs text-muted-foreground">Average Collection</p>
           </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-4 z-0">
-        {/* Search */}
-        <div className="flex-1 min-w-[240px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search by Employee, MPD name..." 
-            className="pl-10 h-9"
-            value={searchTerm}
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
-          />
+      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input 
+              placeholder="Search by Employee, MPD name..." 
+              className="pl-9"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+            />
+          </div>
+
+          {/* Date Filter Range */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">From</label>
+            <input
+              type="date"
+              value={fromDateFilter}
+              onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">To</label>
+            <input
+              type="date"
+              value={toDateFilter}
+              onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Shift Filter */}
+          <div className="w-36">
+            <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Shift" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Shifts</SelectItem>
+                {shifts.map(s => {
+                  const val = `${s.shiftName} (${s.startTime}-${s.endTime})`;
+                  return (
+                    <SelectItem key={s.id} value={val}>
+                      {s.shiftName}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="w-32">
+            <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Status</SelectItem>
+                <SelectItem value="Pending">Pending</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+                <SelectItem value="Verified">Verified</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {/* Date Filter Range */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">From</label>
-          <input
-            type="date"
-            value={fromDateFilter}
-            onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">To</label>
-          <input
-            type="date"
-            value={toDateFilter}
-            onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-        </div>
+        <div className="flex items-center gap-3">
+          {/* Export Options */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
+                Export All Matching
+              </div>
+              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to PDF
+              </DropdownMenuItem>
 
-        {/* Shift Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Shift</label>
-          <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-36 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Shifts</SelectItem>
-              {shifts.map(s => {
-                const val = `${s.shiftName} (${s.startTime}-${s.endTime})`;
-                return (
-                  <SelectItem key={s.id} value={val}>
-                    {s.shiftName}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
+                Export Selected ({selectedIds.size})
+              </div>
+              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-
-        {/* Status Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Status</label>
-          <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Status</SelectItem>
-              <SelectItem value="Pending">Pending</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Export Options */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
-              Export All Matching
-            </div>
-            <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to PDF
-            </DropdownMenuItem>
-
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
-              Export Selected ({selectedIds.size})
-            </div>
-            <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to PDF
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       {/* Main Records Table */}
-      <Card className="overflow-hidden border-border rounded-xl">
-        <CardContent className="p-0">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -865,168 +866,166 @@ export function CashCollection() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/20">
-                    <th className="w-12 text-center p-3">
+            <table className="w-full">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr>
+                  <th className="w-12 text-center p-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === records.length && records.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 cursor-pointer align-middle rounded border-border"
+                    />
+                  </th>
+                  <th className="w-16 text-left p-4 font-medium">S.No</th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors" onClick={() => handleSortToggle('date')}>
+                    <div className="flex items-center gap-1.5">
+                      Date & Time
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium">Shift</th>
+                  <th className="text-left p-4 font-medium">MPD</th>
+                  <th className="text-left p-4 font-medium">Employee</th>
+                  <th className="text-right p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors" onClick={() => handleSortToggle('depositAmount')}>
+                    <div className="flex items-center gap-1.5 justify-end">
+                      Amount
+                      <IndianRupee className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium">Status</th>
+                  <th className="text-center p-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {records.map((record, index) => (
+                  <tr key={record.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="w-12 text-center p-4">
                       <input
                         type="checkbox"
-                        checked={selectedIds.size === records.length && records.length > 0}
-                        onChange={handleSelectAll}
-                        className="w-4 h-4 cursor-pointer align-middle"
+                        checked={selectedIds.has(record.id)}
+                        onChange={() => handleSelectRecord(record.id)}
+                        className="w-4 h-4 cursor-pointer align-middle rounded border-border"
                       />
-                    </th>
-                    <th className="w-16 text-left px-4 py-3 font-medium text-muted-foreground">S.No</th>
-                    <th className="w-32 text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => handleSortToggle('date')}>
-                      <div className="flex items-center gap-1.5">
-                        Date & Time
-                        <Calendar className="w-3.5 h-3.5 opacity-60" />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Employee</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => handleSortToggle('depositAmount')}>
-                      <div className="flex items-center gap-1.5 justify-end">
-                        Amount
-                        <IndianRupee className="w-3.5 h-3.5 opacity-60" />
-                      </div>
-                    </th>
-                    <th className="w-32 text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="w-32 text-center px-4 py-3 font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {records.map((record, index) => (
-                    <tr key={record.id} className="hover:bg-muted/10 transition-colors">
-                      <td className="w-12 text-center p-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(record.id)}
-                          onChange={() => handleSelectRecord(record.id)}
-                          className="w-4 h-4 cursor-pointer align-middle"
-                        />
-                      </td>
-                      <td className="w-16 px-4 py-3 font-semibold text-muted-foreground">
-                        {currentPage * pageSize + index + 1}
-                      </td>
-                      <td className="w-32 px-4 py-3">
-                        <div className="text-xs">
-                          <p className="font-mono">{formatDateToDMY(record.date)}</p>
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <Clock className="w-3 h-3" /> {record.depositTime}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline" className="text-[11px] font-normal bg-muted/30">
-                          {record.shift ? record.shift.split(' ')[0] : 'Morning'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="secondary" className="font-mono text-xs">{record.mpdName}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar className="h-7 w-7 text-xs">
-                            <AvatarFallback className="bg-primary/10 text-primary">
-                              {record.employeeName.split(' ').map(n => n[0]).join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="font-medium text-foreground">{record.employeeName}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-blue-600 font-mono">
-                        {formatCurrency(record.depositAmount)}
-                      </td>
-                      <td className="w-32 px-4 py-3">
-                        {getStatusBadge(record.status)}
-                      </td>
-                      <td className="w-32 px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8 w-8 p-0 hover:bg-muted"
-                            title="View split details"
-                            onClick={() => handleViewClick(record)}
-                          >
-                            <Eye className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8 w-8 p-0 hover:bg-muted"
-                            title="Edit entry"
-                            onClick={() => handleEditClick(record)}
-                            disabled={record.status === 'Verified'}
-                          >
-                            <Edit className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-                            title="Delete entry"
-                            onClick={() => handleDeleteClick(record)}
-                            disabled={record.status === 'Verified'}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-muted/40 border-t-2 border-border text-xs font-semibold">
-                  <tr>
-                    <td colSpan={5} className="px-4 py-3 text-left">
-                      Page Total ({records.length} logs)
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-bold text-blue-700">
-                      {formatCurrency(records.reduce((acc, curr) => acc + (curr.depositAmount || 0), 0))}
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
+                      {currentPage * pageSize + index + 1}
                     </td>
-                    <td colSpan={2} className="px-4 py-3 text-muted-foreground text-left">
-                      Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(stats.totalAmount)}</span> ({stats.totalEntries} entries)
+                    <td className="p-4">
+                      <div>
+                        <p className="font-mono text-sm">{formatDateToDMY(record.date)}</p>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="w-3 h-3" /> {record.depositTime}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted/50 border border-border">
+                        {record.shift ? record.shift.split(' ')[0] : 'Morning'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">
+                        {record.mpdName}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-7 w-7 text-xs">
+                          <AvatarFallback className="bg-primary/10 text-primary font-medium">
+                            {record.employeeName.split(' ').map(n => n[0]).join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium text-foreground">{record.employeeName}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-right font-bold text-foreground font-mono text-base">
+                      {formatCurrency(record.depositAmount)}
+                    </td>
+                    <td className="p-4">
+                      {getStatusBadge(record.status)}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleViewClick(record)}
+                          className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                          title="View split details"
+                        >
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                        <button
+                          onClick={() => handleEditClick(record)}
+                          disabled={record.status === 'Verified'}
+                          className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-30"
+                          title="Edit entry"
+                        >
+                          <Edit className="w-4 h-4 text-blue-500" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(record)}
+                          disabled={record.status === 'Verified'}
+                          className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-30"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                </tfoot>
-              </table>
-            </div>
+                ))}
+              </tbody>
+              <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
+                <tr>
+                  <td colSpan={6} className="p-4 text-left font-semibold">
+                    Page Total ({records.length} logs)
+                  </td>
+                  <td className="p-4 text-right font-mono font-bold text-foreground text-base">
+                    {formatCurrency(records.reduce((acc, curr) => acc + (curr.depositAmount || 0), 0))}
+                  </td>
+                  <td colSpan={2} className="p-4 text-muted-foreground text-left">
+                    Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(stats.totalAmount)}</span> ({stats.totalEntries} entries)
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           )}
+        </div>
 
-          {/* Table Footer Pagination */}
-          {records.length > 0 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0 bg-muted/10">
-              <span className="text-xs text-muted-foreground">
-                Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  disabled={currentPage === 0 || loading}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-xs font-mono px-2">Page {currentPage + 1} of {totalPages}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5"
-                  disabled={currentPage >= totalPages - 1 || loading}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+        {/* Table Footer Pagination */}
+        {records.length > 0 && (
+          <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                disabled={currentPage === 0 || loading}
+                className="gap-1"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              <span className="text-sm font-medium px-2">
+                Page {currentPage + 1} of {Math.max(1, totalPages)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={currentPage >= totalPages - 1 || loading}
+                className="gap-1"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Add / Edit / View Dialog (Spacious two-column layout style matching Employee Assignment dialog content size overrides) */}
       <Dialog open={showAddEditModal} onOpenChange={setShowAddEditModal}>
@@ -1039,9 +1038,6 @@ export function CashCollection() {
               <IndianRupee className="w-5 h-5 text-primary" />
               {modalMode === 'add' ? 'Log New Cash Collection' : modalMode === 'edit' ? 'Edit Cash Collection Log' : 'View Collection Details'}
             </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              {modalMode === 'view' ? 'Review registered denominations and notes counts.' : 'Enter detailed currency note denominations below.'}
-            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col overflow-hidden">
@@ -1115,7 +1111,7 @@ export function CashCollection() {
                         // Search for assigned attendant from duty roster for selected MPD
                         let autoEmpId = '';
                         if (mpdVal && dutyAssignments.length > 0) {
-                          const duty = dutyAssignments.find(d => d.mpdId === mpdVal && d.employeeId);
+                          const duty = dutyAssignments.find(d => String(d.mpdId) === String(mpdVal) && d.employeeId);
                           if (duty && duty.employeeId) autoEmpId = duty.employeeId;
                         }
                         setFormRecord(prev => ({ 
@@ -1132,7 +1128,7 @@ export function CashCollection() {
                       <SelectContent>
                         <SelectItem value="NONE">-- Select MPD --</SelectItem>
                         {mpds.map(m => {
-                          const isAssigned = dutyAssignments.some(d => d.mpdId === m.id);
+                          const isAssigned = dutyAssignments.some(d => String(d.mpdId) === String(m.id) && d.employeeId);
                           return (
                             <SelectItem key={m.id} value={m.id}>
                               {m.mpdName} {isAssigned ? '• (Active Duty)' : ''}

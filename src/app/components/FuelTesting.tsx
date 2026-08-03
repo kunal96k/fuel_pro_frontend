@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Eye,
   Edit,
+  Pencil,
   Trash2,
   Download,
   FileDown,
@@ -40,7 +41,8 @@ import {
   CheckCircle,
   ShieldAlert,
   Loader2,
-  Gauge
+  Gauge,
+  Hash
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -53,7 +55,8 @@ import {
   fetchProducts,
   fetchTanks,
   fetchEmployees,
-  Employee
+  Employee,
+  formatDateToDMY
 } from '../services/api';
 
 const doesTankMatchProduct = (tank: any, productName: string) => {
@@ -510,15 +513,15 @@ export function FuelTesting() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-8">
       {/* ── Page Header ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            Daily Operation - Fuel Testing
+          <h1 className="mb-2">
+            Fuel Testing
           </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Log, verify, and track daily laboratory testing parameters for Petrol & Diesel products.
+          <p className="text-muted-foreground">
+            Log, verify, and track daily laboratory testing parameters for Petrol &amp; Diesel products.
           </p>
         </div>
         <Button onClick={handleAddNew} className="gap-2 shrink-0 shadow-sm" id="btn-add-fuel-test">
@@ -527,10 +530,10 @@ export function FuelTesting() {
       </div>
 
       {/* ── Stats Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100">
-            <FileText className="w-5 h-5 text-blue-600" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
+            <FileText className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono">{stats.total}</p>
@@ -538,19 +541,19 @@ export function FuelTesting() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100">
-            <CheckCircle className="w-5 h-5 text-emerald-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-green-500/10 text-green-500">
+            <CheckCircle className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-xl font-bold font-mono text-emerald-600">{stats.passed}</p>
+            <p className="text-xl font-bold font-mono text-green-600">{stats.passed}</p>
             <p className="text-xs text-muted-foreground">Passed Standards (Page)</p>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-100">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-500">
+            <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono text-amber-600">{stats.warnings + stats.failed}</p>
@@ -558,9 +561,9 @@ export function FuelTesting() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100">
-            <Gauge className="w-5 h-5 text-purple-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+            <Gauge className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono">{stats.avgDensity} kg/m³</p>
@@ -570,117 +573,119 @@ export function FuelTesting() {
       </div>
 
       {/* ── Filter / Search Bar ── */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-4">
-        {/* Search */}
-        <div className="flex-1 min-w-[240px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search report no, tester, equipment, tank or remarks..."
-            className="pl-10 h-9 text-xs"
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
-          />
+      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search report no, tester, equipment, tank..."
+              className="pl-9"
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+            />
+          </div>
+
+          {/* Date From */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">From</label>
+            <input
+              type="date"
+              value={fromDateFilter}
+              onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">To</label>
+            <input
+              type="date"
+              value={toDateFilter}
+              onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Fuel Type Filter */}
+          <div className="w-32">
+            <Select value={fuelTypeFilter} onValueChange={v => { setFuelTypeFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Fuel" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Fuels</SelectItem>
+                <SelectItem value="Petrol">Petrol</SelectItem>
+                <SelectItem value="Diesel">Diesel</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Result Status Filter */}
+          <div className="w-36">
+            <Select value={resultFilter} onValueChange={v => { setResultFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Result" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Results</SelectItem>
+                <SelectItem value="Pass">Pass</SelectItem>
+                <SelectItem value="Fail">Fail</SelectItem>
+                <SelectItem value="Warning">Warning</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {/* Date From */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">From</label>
-          <input
-            type="date"
-            value={fromDateFilter}
-            onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
+        <div className="flex items-center gap-3">
+          {/* Export Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
+                Export All Matching
+              </div>
+              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to PDF
+              </DropdownMenuItem>
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
+                Export Selected ({selectedIds.size})
+              </div>
+              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-
-        {/* Date To */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">To</label>
-          <input
-            type="date"
-            value={toDateFilter}
-            onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-        </div>
-
-        {/* Fuel Type Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Fuel</label>
-          <Select value={fuelTypeFilter} onValueChange={v => { setFuelTypeFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Fuels</SelectItem>
-              <SelectItem value="Petrol">Petrol</SelectItem>
-              <SelectItem value="Diesel">Diesel</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Result Status Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Result</label>
-          <Select value={resultFilter} onValueChange={v => { setResultFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-36 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Results</SelectItem>
-              <SelectItem value="Pass">Pass</SelectItem>
-              <SelectItem value="Fail">Fail</SelectItem>
-              <SelectItem value="Warning">Warning</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Export Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2 text-xs h-9">
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
-              Export All Matching
-            </div>
-            <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to PDF
-            </DropdownMenuItem>
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
-              Export Selected ({selectedIds.size})
-            </div>
-            <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to PDF
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       {/* ── Main Tabular Grid ── */}
-      <Card className="overflow-hidden border-border rounded-xl bg-card">
-        <CardContent className="p-0">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="overflow-x-auto">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -692,133 +697,125 @@ export function FuelTesting() {
               <p className="text-sm font-medium">No test reports found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/20">
-                    <th className="w-12 text-center p-3">
+            <table className="w-full">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr>
+                  <th className="w-12 text-center p-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === records.length && records.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 cursor-pointer align-middle rounded border-border"
+                    />
+                  </th>
+                  <th className="w-16 text-left p-4 font-medium text-muted-foreground">S.No</th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSort('testReportNo')}>
+                    <div className="flex items-center gap-1.5"><Hash className="w-3.5 h-3.5 text-muted-foreground" /> Report No<SortIcon field="testReportNo" /></div>
+                  </th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSort('testDate')}>
+                    <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-muted-foreground" /> Date/Time<SortIcon field="testDate" /></div>
+                  </th>
+                  <th className="text-left p-4 font-medium">Fuel / Tank</th>
+                  <th className="text-left p-4 font-medium">Tested By</th>
+                  <th className="text-right p-4 font-medium">Density (kg/m³)</th>
+                  <th className="text-right p-4 font-medium">Temp (°C)</th>
+                  <th className="text-left p-4 font-medium">Water / Sediment</th>
+                  <th className="text-left p-4 font-medium">Result</th>
+                  <th className="text-center p-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {records.map((rec, idx) => (
+                  <tr key={rec.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="w-12 text-center p-4">
                       <input
                         type="checkbox"
-                        checked={selectedIds.size === records.length && records.length > 0}
-                        onChange={handleSelectAll}
-                        className="w-4 h-4 cursor-pointer"
+                        checked={selectedIds.has(rec.id)}
+                        onChange={() => handleSelectOne(rec.id)}
+                        className="w-4 h-4 cursor-pointer align-middle rounded border-border"
                       />
-                    </th>
-                    <th className="w-14 text-left px-4 py-3 font-medium text-muted-foreground">S.No</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSort('testReportNo')}>
-                      Report No <SortIcon field="testReportNo" />
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSort('testDate')}>
-                      Date/Time <SortIcon field="testDate" />
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Fuel / Tank</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tested By</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Density (kg/m³)</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Temp (°C)</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Water / Sediment</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Result</th>
-                    <th className="w-32 px-4 py-3 text-center font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((rec, idx) => (
-                    <tr key={rec.id} className="border-b border-border/60 hover:bg-muted/30 transition-colors">
-                      <td className="text-center p-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(rec.id)}
-                          onChange={() => handleSelectOne(rec.id)}
-                          className="w-4 h-4 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                        {currentPage * pageSize + idx + 1}
-                      </td>
-                      <td className="px-4 py-3 text-xs font-mono font-semibold text-primary">
-                        {rec.testReportNo || `FT-${rec.id}`}
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        <div className="flex flex-col">
-                          <span className="font-semibold">{rec.testDate}</span>
-                          <span className="text-[10px] text-muted-foreground">{rec.testTime}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        <div className="flex flex-col">
-                          <span className="font-semibold">{rec.fuelType}</span>
-                          <span className="text-[10px] text-muted-foreground">{rec.tankNo}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs font-medium">
-                        {rec.testedBy}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold text-xs">
-                        {rec.density.toFixed(1)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">
-                        {rec.temperature.toFixed(1)}°C
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        <div className="flex flex-col">
-                          <span>W: {rec.waterContent}%</span>
-                          <span className="text-[10px] text-muted-foreground">S: {rec.sediment}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {getResultBadge(rec.testResult)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="View" onClick={() => handleView(rec)}>
-                            <Eye className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Edit" onClick={() => handleEdit(rec)}>
-                            <Edit className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600" title="Delete" onClick={() => handleDeleteClick(rec)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-muted/40 border-t border-border text-xs font-semibold">
-                  <tr>
-                    <td colSpan={6} className="px-4 py-3 text-left">
-                      Page Total ({records.length} records)
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">
-                      Avg: {stats.avgDensity}
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
+                      {currentPage * pageSize + idx + 1}
                     </td>
-                    <td colSpan={4} className="px-4 py-3 text-muted-foreground text-left pl-6">
-                      Total Entries: <span className="font-mono text-foreground font-bold">{totalElements}</span>
+                    <td className="p-4 font-mono text-sm text-foreground">
+                      {rec.testReportNo || `FT-${rec.id}`}
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <p className="font-mono text-sm">{formatDateToDMY(rec.testDate)}</p>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {rec.testTime}</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <p className="font-medium text-foreground">{rec.fuelType}</p>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono mt-0.5">{rec.tankNo}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 font-medium text-foreground">
+                      {rec.testedBy}
+                    </td>
+                    <td className="p-4 text-right font-bold text-foreground font-mono text-base">
+                      {rec.density.toFixed(1)}
+                    </td>
+                    <td className="p-4 text-right font-mono text-sm">
+                      {rec.temperature.toFixed(1)}°C
+                    </td>
+                    <td className="p-4 text-xs">
+                      <div className="flex flex-col">
+                        <span>W: {rec.waterContent}%</span>
+                        <span className="text-muted-foreground">S: {rec.sediment}%</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      {getResultBadge(rec.testResult)}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button onClick={() => handleView(rec)} className="p-1.5 hover:bg-muted rounded-lg transition-colors" title="View"><Eye className="w-4 h-4 text-muted-foreground" /></button>
+                        <button onClick={() => handleEdit(rec)} className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit"><Pencil className="w-4 h-4 text-blue-500" /></button>
+                        <button onClick={() => handleDeleteClick(rec)} className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                      </div>
                     </td>
                   </tr>
-                </tfoot>
-              </table>
-            </div>
+                ))}
+              </tbody>
+              <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
+                <tr>
+                  <td colSpan={6} className="p-4 text-left font-semibold">
+                    Page Total ({records.length} records)
+                  </td>
+                  <td className="p-4 text-right font-mono font-bold text-foreground text-base">
+                    Avg: {stats.avgDensity}
+                  </td>
+                  <td colSpan={4} className="p-4 text-muted-foreground text-left pl-6">
+                    Total Entries: <span className="font-mono text-foreground font-bold">{totalElements}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           )}
+        </div>
 
-          {/* ── Table Footer Pagination ── */}
-          {records.length > 0 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/10">
-              <span className="text-xs text-muted-foreground">
-                Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
-              </span>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8 px-2.5" disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-xs font-mono px-2">Page {currentPage + 1} of {totalPages}</span>
-                <Button variant="outline" size="sm" className="h-8 px-2.5" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => p + 1)}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+        {/* ── Table Footer Pagination ── */}
+        {records.length > 0 && (
+          <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)} className="gap-1">
+                <ChevronLeft className="w-4 h-4" /> Previous
+              </Button>
+              <span className="text-sm font-medium px-2">Page {currentPage + 1} of {totalPages}</span>
+              <Button variant="outline" size="sm" disabled={currentPage >= totalPages - 1} onClick={() => setCurrentPage(p => p + 1)} className="gap-1">
+                Next <ChevronRight className="w-4 h-4" />
+              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </div>
 
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW DIALOG MODAL

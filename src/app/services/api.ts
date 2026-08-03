@@ -1163,14 +1163,14 @@ export interface CreditSale {
   totalAmount: number;
   mpdName: string;
   nozzleName: string;
-  status: 'Pending' | 'Completed';
+  status?: string;
   createdAt?: string;
 }
 
 export interface CreditSaleQueryParams {
   search?: string;
   category?: string;
-  status?: string;
+  mpd?: string;
   fromDate?: string;
   toDate?: string;
   page?: number;
@@ -1186,7 +1186,7 @@ export async function fetchCreditSales(params: CreditSaleQueryParams = {}): Prom
   if (params.size !== undefined) query.set('size', String(params.size));
   if (params.search) query.set('search', params.search);
   if (params.category) query.set('category', params.category);
-  if (params.status) query.set('status', params.status);
+  if (params.mpd) query.set('mpd', params.mpd);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
   if (params.sortBy) query.set('sortBy', params.sortBy);
@@ -1211,7 +1211,7 @@ export async function fetchCreditSales(params: CreditSaleQueryParams = {}): Prom
     totalAmount: Number(item.totalAmount),
     mpdName: item.mpdName,
     nozzleName: item.nozzleName,
-    status: item.status,
+    status: item.status || undefined,
     createdAt: item.createdAt,
   }));
 }
@@ -1290,7 +1290,7 @@ export interface OwnUsageRecord {
   nozzleName: string;
   purpose: string;
   remarks: string;
-  status: 'Pending' | 'Completed';
+  status?: string;
   authorizedBy?: string;
   approvedBy?: string;
   createdAt?: string;
@@ -1299,7 +1299,6 @@ export interface OwnUsageRecord {
 export interface OwnUsageQueryParams {
   search?: string;
   category?: string;
-  status?: string;
   purpose?: string;
   fromDate?: string;
   toDate?: string;
@@ -1316,7 +1315,6 @@ export async function fetchOwnUsages(params: OwnUsageQueryParams = {}): Promise<
   if (params.size !== undefined) query.set('size', String(params.size));
   if (params.search) query.set('search', params.search);
   if (params.category) query.set('category', params.category);
-  if (params.status) query.set('status', params.status);
   if (params.purpose) query.set('purpose', params.purpose);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
@@ -1344,7 +1342,7 @@ export async function fetchOwnUsages(params: OwnUsageQueryParams = {}): Promise<
     nozzleName: item.nozzleName,
     purpose: item.purpose,
     remarks: item.remarks,
-    status: item.status,
+    status: item.status || undefined,
     authorizedBy: item.authorizedBy || '',
     approvedBy: item.approvedBy || '',
     createdAt: item.createdAt,

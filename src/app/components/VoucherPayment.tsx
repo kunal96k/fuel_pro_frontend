@@ -304,7 +304,6 @@ export function VoucherPayment() {
         <DialogContent className="w-screen h-screen max-w-none max-h-none rounded-none flex flex-col overflow-hidden">
           <DialogHeader className="shrink-0">
             <DialogTitle>{editRecord ? 'Edit Payment Voucher' : 'New Payment Voucher'}</DialogTitle>
-            <DialogDescription>Record a payment made to a party against fuel purchase, oil purchase, or credit expense.</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto space-y-5 py-2 px-1">

@@ -14,8 +14,10 @@ import {
   CreditCard,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Eye,
   Edit,
+  Pencil,
   Trash2,
   Package,
   Download,
@@ -130,14 +132,14 @@ const INIT_FORM = {
   nozzleId: '',
   nozzleName: '',
   date: getISTDateString(),
-  time: getISTTimeString(),
-  status: 'Pending' as 'Pending' | 'Completed'
+  time: getISTTimeString()
 };
 
 export function CreditSales() {
   // ── Master data ──
   const [products, setProducts] = useState<Product[]>([]);
   const [mpds, setMpds] = useState<MPD[]>([]);
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
   const [loadingMaster, setLoadingMaster] = useState(false);
 
   // ── Table / pagination state ──
@@ -147,8 +149,8 @@ export function CreditSales() {
   const [searchTerm, setSearchTerm] = useState('');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [mpdFilter, setMpdFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(0);
@@ -172,13 +174,15 @@ export function CreditSales() {
   // ── Selection ──
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // ── Customer & Vehicle dropdown selection states ──
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerVehicles, setCustomerVehicles] = useState<any[]>([]);
+
   // ── Customer & Vehicle Autocomplete Typeahead States ──
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerVehicles, setCustomerVehicles] = useState<any[]>([]);
 
   const [vehicleSearch, setVehicleSearch] = useState('');
   const [vehicleSuggestions, setVehicleSuggestions] = useState<any[]>([]);
@@ -187,6 +191,9 @@ export function CreditSales() {
 
   const customerRef = useRef<HTMLDivElement>(null);
   const vehicleRef = useRef<HTMLDivElement>(null);
+
+  // ── Slip No validation warning state ──
+  const [slipNoExists, setSlipNoExists] = useState(false);
 
   // ── Derived: nozzles for selected MPD ──
   const availableNozzles: Nozzle[] = (() => {
@@ -211,7 +218,7 @@ export function CreditSales() {
         size: pageSize,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -227,7 +234,7 @@ export function CreditSales() {
         size: 100000,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -239,7 +246,7 @@ export function CreditSales() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, categoryFilter, statusFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
+  }, [currentPage, searchTerm, categoryFilter, mpdFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
 
   useEffect(() => {
     loadRecords();
@@ -252,12 +259,14 @@ export function CreditSales() {
     const load = async () => {
       setLoadingMaster(true);
       try {
-        const [pRes, mRes] = await Promise.all([
+        const [pRes, mRes, cRes] = await Promise.all([
           fetchProducts({ size: 1000 }),
-          fetchMpdsAll()
+          fetchMpdsAll(),
+          fetchCustomers({ status: 'Active', size: 1000 })
         ]);
         setProducts(pRes.content);
         setMpds(mRes);
+        setAllCustomers(cRes.content);
       } catch {
         toast.error('Failed to load master configuration data.');
       } finally {
@@ -347,6 +356,28 @@ export function CreditSales() {
       return () => clearTimeout(timer);
     }
   }, [vehicleSearch, selectedCustomer, customerVehicles, modalMode]);
+
+  // ─────────────────────────────────────────────
+  // Slip No duplicate validation check
+  // ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!form.slipNo.trim() || form.slipNo === 'SLIP...' || modalMode === 'view') {
+      setSlipNoExists(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetchCreditSales({ search: form.slipNo.trim() });
+        const exists = res.content.some(
+          r => r.slipNo.toLowerCase() === form.slipNo.trim().toLowerCase() && r.id !== activeRecordId
+        );
+        setSlipNoExists(exists);
+      } catch {
+        setSlipNoExists(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.slipNo, activeRecordId, modalMode]);
 
   // ─────────────────────────────────────────────
   // Dynamic Rate Lookup
@@ -455,6 +486,7 @@ export function CreditSales() {
     setCustomerVehicles([]);
     setCustomerSearch('');
     setVehicleSearch('');
+    setSlipNoExists(false);
     
     setForm({
       ...INIT_FORM,
@@ -480,8 +512,17 @@ export function CreditSales() {
   const handleEdit = async (record: CreditSalesRecord) => {
     setModalMode('edit');
     setActiveRecordId(record.id);
-    setSelectedCustomer(null);
-    setCustomerVehicles([]);
+    setSlipNoExists(false);
+
+    // Resolve matching customer record to get vehicle lists
+    const matchedCustomer = allCustomers.find(c => c.customerName.toLowerCase() === record.customerName.toLowerCase());
+    if (matchedCustomer) {
+      setSelectedCustomer(matchedCustomer);
+      setCustomerVehicles(matchedCustomer.vehicles || []);
+    } else {
+      setSelectedCustomer(null);
+      setCustomerVehicles([]);
+    }
 
     // Find matching MPD and Nozzle IDs from the loaded lists
     let mappedMpdId = '';
@@ -526,32 +567,27 @@ export function CreditSales() {
       nozzleId: mappedNozzleId,
       nozzleName: record.nozzleName,
       date: record.date,
-      time: record.saleTime,
-      status: record.status
+      time: record.saleTime
     });
 
     setCustomerSearch(record.customerName);
     setVehicleSearch(record.vehicleNo);
     setShowModal(true);
-
-    // Resolve matching customer record to get vehicle lists
-    try {
-      const res = await fetchCustomers({ search: record.customerName, size: 5 });
-      const exactCust = res.content.find(c => c.customerName.toLowerCase() === record.customerName.toLowerCase());
-      if (exactCust) {
-        setSelectedCustomer(exactCust);
-        setCustomerVehicles(exactCust.vehicles || []);
-      }
-    } catch {
-      // silent fallback
-    }
   };
 
   const handleView = async (record: CreditSalesRecord) => {
     setModalMode('view');
     setActiveRecordId(record.id);
-    setSelectedCustomer(null);
-    setCustomerVehicles([]);
+
+    // Resolve matching customer record to get vehicle lists
+    const matchedCustomer = allCustomers.find(c => c.customerName.toLowerCase() === record.customerName.toLowerCase());
+    if (matchedCustomer) {
+      setSelectedCustomer(matchedCustomer);
+      setCustomerVehicles(matchedCustomer.vehicles || []);
+    } else {
+      setSelectedCustomer(null);
+      setCustomerVehicles([]);
+    }
 
     // Find matching MPD and Nozzle IDs from the loaded lists
     let mappedMpdId = '';
@@ -596,8 +632,7 @@ export function CreditSales() {
       nozzleId: mappedNozzleId,
       nozzleName: record.nozzleName,
       date: record.date,
-      time: record.saleTime,
-      status: record.status
+      time: record.saleTime
     });
 
     setCustomerSearch(record.customerName);
@@ -630,6 +665,11 @@ export function CreditSales() {
       return;
     }
 
+    if (slipNoExists) {
+      toast.error('Cannot submit because Slip No. already exists.');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -645,7 +685,7 @@ export function CreditSales() {
         totalAmount: parseFloat(form.totalAmount),
         mpdName: form.mpdName,
         nozzleName: form.nozzleName,
-        status: form.status
+        slipNo: form.slipNo
       };
 
       if (modalMode === 'edit' && activeRecordId) {
@@ -738,12 +778,12 @@ export function CreditSales() {
   // CSV export
   // ─────────────────────────────────────────────
   const downloadCSV = (data: CreditSalesRecord[]) => {
-    const headers = ['Slip No', 'Voucher No', 'Date', 'Sale Time', 'Customer', 'Vehicle No', 'Product Category', 'Product Name', 'Qty', 'Unit', 'Rate', 'Total Amount', 'MPD', 'Nozzle', 'Status'];
+    const headers = ['Slip No', 'Voucher No', 'Date', 'Sale Time', 'Customer', 'Vehicle No', 'Product Category', 'Product Name', 'Qty', 'Unit', 'Rate', 'Total Amount', 'MPD', 'Nozzle'];
     const rows = data.map(r => [
       r.slipNo, r.voucherNo, r.date, r.saleTime, r.customerName,
       r.vehicleNo, r.productCategory, r.productName,
       r.quantity, r.productUnit, r.rate, r.totalAmount,
-      r.mpdName, r.nozzleName, r.status
+      r.mpdName, r.nozzleName
     ]);
     const csvContent = [headers.join(','), ...rows.map(row => row.map(v => `"${v ?? ''}"`).join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -767,10 +807,10 @@ export function CreditSales() {
         <tr style="background-color: #f1f5f9; font-weight: bold;">
           <th>Slip No</th><th>Voucher No</th><th>Date</th><th>Time</th><th>Customer</th><th>Vehicle No</th>
           <th>Category</th><th>Product</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Total Amount</th>
-          <th>MPD</th><th>Nozzle</th><th>Status</th>
+          <th>MPD</th><th>Nozzle</th>
         </tr>`;
     data.forEach(r => {
-      html += `<tr><td>${r.slipNo}</td><td>${r.voucherNo}</td><td>${formatDateToDMY(r.date)}</td><td>${r.saleTime}</td><td>${r.customerName}</td><td>${r.vehicleNo}</td><td>${r.productCategory}</td><td>${r.productName}</td><td>${r.quantity}</td><td>${r.productUnit}</td><td>${r.rate}</td><td>${r.totalAmount}</td><td>${r.mpdName}</td><td>${r.nozzleName}</td><td>${r.status}</td></tr>`;
+      html += `<tr><td>${r.slipNo}</td><td>${r.voucherNo}</td><td>${formatDateToDMY(r.date)}</td><td>${r.saleTime}</td><td>${r.customerName}</td><td>${r.vehicleNo}</td><td>${r.productCategory}</td><td>${r.productName}</td><td>${r.quantity}</td><td>${r.productUnit}</td><td>${r.rate}</td><td>${r.totalAmount}</td><td>${r.mpdName}</td><td>${r.nozzleName}</td></tr>`;
     });
     html += `</table></body></html>`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
@@ -801,7 +841,6 @@ export function CreditSales() {
         <td style="padding:6px 8px;border:1px solid #cbd5e1;font-family:monospace">${r.vehicleNo}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.productName}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right;font-family:monospace;font-weight:bold;color:#1d4ed8">₹${r.totalAmount.toLocaleString('en-IN',{minimumFractionDigits:2})}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${r.status}</td>
       </tr>`;
     });
     const htmlContent = `<html><head><title>Credit Sales Report</title><style>
@@ -817,7 +856,7 @@ export function CreditSales() {
       <div class="header"><div><h1 class="title">Credit Sales Report</h1><p style="margin:4px 0 0;font-size:12px;color:#475569">Fuel Station Operations</p></div>
       <div class="meta"><p style="margin:0"><strong>Report Date:</strong> ${genDate}</p><p style="margin:2px 0 0"><strong>Generation Time:</strong> ${genTime}</p><p style="margin:2px 0 0"><strong>Total Records:</strong> ${data.length}</p></div></div>
       <table><thead><tr>
-        <th style="width:40px">S.No</th><th>Slip No</th><th>Date &amp; Time</th><th>Customer</th><th>Vehicle</th><th>Product</th><th style="text-align:right">Amount</th><th style="text-align:center">Status</th>
+        <th style="width:40px">S.No</th><th>Slip No</th><th>Date &amp; Time</th><th>Customer</th><th>Vehicle</th><th>Product</th><th style="text-align:right">Amount</th>
       </tr></thead><tbody>${rowsHtml}</tbody></table>
       <div class="footer">System generated report. Generated on ${genDate} at ${genTime}.</div>
       <script>window.onload=function(){window.print();setTimeout(function(){window.close();},500);}</script>
@@ -835,7 +874,7 @@ export function CreditSales() {
         size: 10000,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -860,7 +899,7 @@ export function CreditSales() {
         size: 10000,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -877,41 +916,28 @@ export function CreditSales() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'completed':
-        return <Badge variant="outline" className="bg-blue-50/80 text-blue-700 border-blue-200 text-xs">Completed</Badge>;
-      case 'pending':
-        return <Badge variant="outline" className="bg-amber-50/80 text-amber-700 border-amber-200 text-xs">Pending</Badge>;
-      default:
-        return <Badge variant="outline" className="text-xs">{status}</Badge>;
-    }
-  };
-
   const isView = modalMode === 'view';
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-8">
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Credit Sales</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Manage vehicle-based credit fuel & oil sales with slip generation
-          </p>
+          <h1 className="mb-2">Credit Sales</h1>
+          <p className="text-muted-foreground">Manage vehicle-based credit fuel &amp; oil sales with slip generation</p>
         </div>
-        <Button onClick={handleAddNew} className="gap-2" size="sm">
+        <Button onClick={handleAddNew} className="gap-2">
           <Plus className="w-4 h-4" />
           Add New Sale
         </Button>
       </div>
 
       {/* ── Stats Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100">
-            <IndianRupee className="w-5 h-5 text-blue-600" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
+            <IndianRupee className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono">
@@ -921,9 +947,9 @@ export function CreditSales() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-100">
-            <CalendarDays className="w-5 h-5 text-sky-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
+            <CalendarDays className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono">{totalElements}</p>
@@ -931,19 +957,9 @@ export function CreditSales() {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100">
-            <TrendingUp className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{statsRecords.filter(r => r.status === 'Completed').length}</p>
-            <p className="text-xs text-muted-foreground">Completed (Overall)</p>
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl px-5 py-4 flex items-center gap-4">
-          <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100">
-            <CreditCard className="w-5 h-5 text-purple-600" />
+        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+            <CreditCard className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xl font-bold font-mono">
@@ -955,275 +971,306 @@ export function CreditSales() {
       </div>
 
       {/* ── Filter / Search Bar ── */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-4 z-0">
-        {/* Search */}
-        <div className="flex-1 min-w-[240px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search customer, slip, vehicle, product…"
-            className="pl-10 h-9 text-xs"
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
-          />
+      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search customer, slip, vehicle, product..."
+              className="pl-9"
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+            />
+          </div>
+
+          {/* Date From */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">From</label>
+            <input
+              type="date"
+              value={fromDateFilter}
+              onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground font-medium">To</label>
+            <input
+              type="date"
+              value={toDateFilter}
+              onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div className="w-36">
+            <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Categories</SelectItem>
+                <SelectItem value="Fuel">Fuel</SelectItem>
+                <SelectItem value="Oil & Lubes">Oil & Lubes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* MPD Filter */}
+          <div className="w-36">
+            <Select value={mpdFilter} onValueChange={v => { setMpdFilter(v); setCurrentPage(0); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="MPD" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All MPDs</SelectItem>
+                {mpds.map(m => (
+                  <SelectItem key={m.id} value={m.mpdName}>
+                    {m.mpdName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {/* Date From */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">From</label>
-          <input
-            type="date"
-            value={fromDateFilter}
-            onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
+        <div className="flex items-center gap-3">
+          {/* Export Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
+                Export All Matching
+              </div>
+              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
+                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export All to PDF
+              </DropdownMenuItem>
+              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
+                Export Selected ({selectedIds.size})
+              </div>
+              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                Export Selected to PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-
-        {/* Date To */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">To</label>
-          <input
-            type="date"
-            value={toDateFilter}
-            onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
-            className="w-32 h-9 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-        </div>
-
-        {/* Category Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Category</label>
-          <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-36 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Categories</SelectItem>
-              <SelectItem value="Fuel">Fuel</SelectItem>
-              <SelectItem value="Oil & Lubes">Oil & Lubes</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Status Filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground font-medium">Status</label>
-          <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
-            <SelectTrigger className="h-9 w-32 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Status</SelectItem>
-              <SelectItem value="Pending">Pending</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Export Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2 text-xs">
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
-              Export All Matching
-            </div>
-            <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
-              <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export All to PDF
-            </DropdownMenuItem>
-            <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
-              Export Selected ({selectedIds.size})
-            </div>
-            <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to Excel
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-              <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-              Export Selected to PDF
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       {/* ── Main Table ── */}
-      <Card className="overflow-hidden border-border rounded-xl bg-card">
-        <CardContent className="p-0">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="overflow-x-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm font-medium">Loading credit sales records…</p>
+              <p className="text-sm font-medium">Loading credit sales records...</p>
             </div>
           ) : paginated.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <CreditCard className="w-12 h-12 opacity-20" />
               <p className="text-sm font-medium">No credit sale records found</p>
               <p className="text-xs">
-                {(searchTerm || statusFilter !== 'ALL' || categoryFilter !== 'ALL' || fromDateFilter || toDateFilter) ? 'Try relaxing your search or filter inputs.' : 'Click "Add New Sale" to create the first record.'}
+                {(searchTerm || categoryFilter !== 'ALL' || fromDateFilter || toDateFilter) ? 'Try relaxing your search or filter inputs.' : 'Click "Add New Sale" to create the first record.'}
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/20">
-                    <th className="w-12 text-center p-3">
+            <table className="w-full">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr>
+                  <th className="w-12 text-center p-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === paginated.length && paginated.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 cursor-pointer align-middle rounded border-border"
+                    />
+                  </th>
+                  <th className="w-16 text-left p-4 font-medium text-muted-foreground">S.No</th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('customerName')}>
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-muted-foreground" /> Customer<SortIcon field="customerName" />
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('slipNo')}>
+                    <div className="flex items-center gap-1.5">
+                      <Receipt className="w-3.5 h-3.5 text-muted-foreground" /> Slip No<SortIcon field="slipNo" />
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-muted-foreground" /> Vehicle No.
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('productName')}>
+                    <div className="flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-muted-foreground" /> Product<SortIcon field="productName" />
+                    </div>
+                  </th>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('date')}>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" /> Date &amp; Time<SortIcon field="date" />
+                    </div>
+                  </th>
+                  <th className="text-right p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('totalAmount')}>
+                    <div className="flex items-center gap-1.5 justify-end">
+                      Amount <IndianRupee className="w-3.5 h-3.5 text-muted-foreground" /><SortIcon field="totalAmount" />
+                    </div>
+                  </th>
+                  <th className="text-center p-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {paginated.map((record, index) => (
+                  <tr key={record.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="w-12 text-center p-4">
                       <input
                         type="checkbox"
-                        checked={selectedIds.size === paginated.length && paginated.length > 0}
-                        onChange={handleSelectAll}
-                        className="w-4 h-4 cursor-pointer"
+                        checked={selectedIds.has(record.id)}
+                        onChange={() => handleSelectRecord(record.id)}
+                        className="w-4 h-4 cursor-pointer align-middle rounded border-border"
                       />
-                    </th>
-                    <th className="w-14 text-left px-4 py-3 font-medium text-muted-foreground">S.No</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSortToggle('customerName')}>
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 opacity-60" /> Customer<SortIcon field="customerName" />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSortToggle('slipNo')}>
-                      <div className="flex items-center gap-1.5">
-                        <Receipt className="w-3.5 h-3.5 opacity-60" /> Slip No<SortIcon field="slipNo" />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <Truck className="w-3.5 h-3.5 opacity-60" /> Vehicle No.
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSortToggle('productName')}>
-                      <div className="flex items-center gap-1.5">
-                        <Package className="w-3.5 h-3.5 opacity-60" /> Product<SortIcon field="productName" />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSortToggle('date')}>
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 opacity-60" /> Date &amp; Time<SortIcon field="date" />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer select-none" onClick={() => handleSortToggle('totalAmount')}>
-                      <div className="flex items-center gap-1.5 justify-end">
-                        Amount <IndianRupee className="w-3.5 h-3.5 opacity-60" /><SortIcon field="totalAmount" />
-                      </div>
-                    </th>
-                    <th className="w-28 text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="w-32 text-center px-4 py-3 font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {paginated.map((record, index) => (
-                    <tr key={record.id} className="hover:bg-muted/10 transition-colors">
-                      <td className="w-12 text-center p-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(record.id)}
-                          onChange={() => handleSelectRecord(record.id)}
-                          className="w-4 h-4 cursor-pointer"
-                        />
-                      </td>
-                      <td className="w-14 px-4 py-3 font-semibold text-muted-foreground">
-                        {currentPage * pageSize + index + 1}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar className="h-7 w-7 text-xs">
-                            <AvatarFallback className="bg-primary/10 text-primary">
-                              {record.customerName ? record.customerName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'CU'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="font-medium text-foreground">{record.customerName}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-foreground">{record.slipNo}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="secondary" className="font-mono text-xs">{record.vehicleNo}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-foreground">{record.productName}</p>
-                          <p className="text-[11px] text-muted-foreground">{record.productCategory} · {record.quantity} {record.productUnit}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-xs">
-                          <p className="font-mono">{formatDateToDMY(record.date)}</p>
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <Clock className="w-3 h-3" /> {record.saleTime}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-blue-600 font-mono">
-                        {formatCurrency(record.totalAmount)}
-                      </td>
-                      <td className="w-28 px-4 py-3">{getStatusBadge(record.status)}</td>
-                      <td className="w-32 px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-muted" title="View" onClick={() => handleView(record)}>
-                            <Eye className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-muted" title="Edit" onClick={() => handleEdit(record)} disabled={record.status === 'Completed'}>
-                            <Edit className="w-4 h-4 text-muted-foreground" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600" title="Delete" onClick={() => handleDeleteClick(record)} disabled={record.status === 'Completed'}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-muted/40 border-t border-border text-xs font-semibold">
-                  <tr>
-                    <td colSpan={7} className="px-4 py-3 text-left">
-                      Page Total ({paginated.length} records)
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-bold text-blue-700">
-                      {formatCurrency(paginated.reduce((s, r) => s + r.totalAmount, 0))}
+                    <td className="w-16 p-4 font-medium text-muted-foreground">
+                      {currentPage * pageSize + index + 1}
                     </td>
-                    <td colSpan={2} className="px-4 py-3 text-muted-foreground text-left">
-                      Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-7 w-7 text-xs">
+                          <AvatarFallback className="bg-primary/10 text-primary font-medium">
+                            {record.customerName ? record.customerName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'CU'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium text-foreground">{record.customerName}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 font-mono text-sm text-foreground">{record.slipNo}</td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">
+                        {record.vehicleNo}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <p className="font-medium text-foreground">{record.productName}</p>
+                        <p className="text-xs text-muted-foreground">{record.productCategory} · {record.quantity} {record.productUnit}</p>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <p className="font-mono text-sm">{formatDateToDMY(record.date)}</p>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="w-3 h-3" /> {record.saleTime}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-right font-bold text-foreground font-mono text-base">
+                      {formatCurrency(record.totalAmount)}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleView(record)}
+                          className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(record)}
+                          className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil className="w-4 h-4 text-blue-500" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(record)}
+                          className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                </tfoot>
-              </table>
-            </div>
+                ))}
+              </tbody>
+              <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
+                <tr>
+                  <td colSpan={6} className="p-4 text-left font-semibold">
+                    Page Total ({paginated.length} records)
+                  </td>
+                  <td className="p-4 text-right font-mono font-bold text-foreground text-base">
+                    {formatCurrency(paginated.reduce((s, r) => s + r.totalAmount, 0))}
+                  </td>
+                  <td colSpan={2} className="p-4 text-muted-foreground text-left">
+                    Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           )}
+        </div>
 
-          {/* Pagination */}
-          {totalElements > 0 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/10">
-              <span className="text-xs text-muted-foreground">
-                Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
-              </span>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8 px-2.5" disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-xs font-mono px-2">Page {currentPage + 1} of {totalPagesCount}</span>
-                <Button variant="outline" size="sm" className="h-8 px-2.5" disabled={currentPage >= totalPagesCount - 1} onClick={() => setCurrentPage(p => p + 1)}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+        {/* Pagination */}
+        {totalElements > 0 && (
+          <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                disabled={currentPage === 0 || loading}
+                className="gap-1"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              <span className="text-sm font-medium px-2">
+                Page {currentPage + 1} of {Math.max(1, totalPages)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={currentPage >= totalPages - 1 || loading}
+                className="gap-1"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW MODAL
@@ -1231,12 +1278,12 @@ export function CreditSales() {
       <Dialog open={showModal} onOpenChange={setShowModal}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
-          style={{ maxWidth: '90vw', width: '900px', height: '88vh', maxHeight: '88vh' }}
+          style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
         >
           {/* Modal Header */}
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
             <div className="flex items-center justify-between w-full">
-              <DialogTitle className="flex items-center gap-2 text-lg font-semibold">
+              <DialogTitle className="flex items-center gap-2 text-base font-bold">
                 <CreditCard className="w-5 h-5 text-primary" />
                 {modalMode === 'add'
                   ? 'Add New Credit Sale'
@@ -1244,94 +1291,94 @@ export function CreditSales() {
                   ? 'Edit Credit Sale'
                   : 'Credit Sale Details'}
               </DialogTitle>
-              {modalMode !== 'view' && (
-                <div className="text-[10px] text-muted-foreground/80 flex items-center gap-4 bg-muted/40 px-3 py-1.5 rounded-lg border border-border/40 font-medium mr-6">
-                  <div>
-                    <span className="text-amber-600 font-semibold">Pending:</span> Sale is draft/unverified
-                  </div>
-                  <div className="w-px h-3 bg-border/60" />
-                  <div>
-                    <span className="text-blue-600 font-semibold">Completed:</span> Sale is approved and posted to ledger
-                  </div>
-                </div>
-              )}
             </div>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              {modalMode === 'view'
-                ? 'Review credit sale record details.'
-                : 'Fill in the details below to record a credit sale transaction.'}
-            </DialogDescription>
           </DialogHeader>
 
           {/* Modal Body */}
           <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col overflow-hidden">
-            <div className="overflow-y-auto flex-1 p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="overflow-y-auto flex-1 p-5 space-y-4">
 
-                {/* ─────────────────────────────────
-                    LEFT COLUMN: Metadata / Header
-                ───────────────────────────────── */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">
-                    Sale Header
-                  </h3>
+              {/* ─────────────────────────────────
+                  SECTION 1: SALE HEADER & PARTY DETAILS
+              ───────────────────────────────── */}
+              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Sale Header &amp; Customer Information
+                </h3>
 
-                  {/* Row: Voucher No + Slip No */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-voucherNo" className="text-xs font-medium flex items-center gap-1">
-                        <Hash className="w-3 h-3" /> Voucher No
-                      </Label>
-                      <Input
-                        id="cs-voucherNo"
-                        value={form.voucherNo}
-                        disabled
-                        className="h-9 text-xs bg-muted font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-slipNo" className="text-xs font-medium flex items-center gap-1">
-                        <Receipt className="w-3 h-3" /> Slip No
-                      </Label>
-                      <Input
-                        id="cs-slipNo"
-                        value={form.slipNo}
-                        disabled
-                        className="h-9 text-xs bg-muted font-mono"
-                      />
-                    </div>
+                {/* Row 1: Voucher No, Slip No, Date, Time (4 Columns) */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {/* Voucher No */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-voucherNo" className="text-xs font-medium flex items-center gap-1">
+                      <Hash className="w-3 h-3 text-muted-foreground" /> Voucher No
+                    </Label>
+                    <Input
+                      id="cs-voucherNo"
+                      value={form.voucherNo}
+                      disabled
+                      tabIndex={-1}
+                      className="h-9 text-xs bg-muted/60 font-mono"
+                    />
                   </div>
 
-                  {/* Row: Date + Time */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-date" className="text-xs font-medium flex items-center gap-1">
-                        <Calendar className="w-3 h-3" /> Date
-                      </Label>
-                      <Input
-                        id="cs-date"
-                        type="date"
-                        value={form.date}
-                        disabled
-                        className="h-9 text-xs bg-muted font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-time" className="text-xs font-medium flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Time (IST)
-                      </Label>
-                      <Input
-                        id="cs-time"
-                        type="time"
-                        value={form.time}
-                        disabled
-                        className="h-9 text-xs bg-muted font-mono"
-                      />
-                    </div>
+                  {/* Slip No */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-slipNo" className="text-xs font-medium flex items-center gap-1">
+                      <Receipt className="w-3 h-3 text-muted-foreground" /> Slip No <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Input
+                      id="cs-slipNo"
+                      value={form.slipNo}
+                      onChange={e => setForm(prev => ({ ...prev, slipNo: e.target.value }))}
+                      disabled={isView}
+                      tabIndex={1}
+                      className={`h-9 text-xs font-mono ${isView ? 'bg-muted' : 'bg-background'}`}
+                      required={!isView}
+                    />
+                    {slipNoExists && (
+                      <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5 animate-pulse">
+                        <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                        Already exists!
+                      </p>
+                    )}
                   </div>
 
+                  {/* Date */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-date" className="text-xs font-medium flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-muted-foreground" /> Date (IST)
+                    </Label>
+                    <Input
+                      id="cs-date"
+                      type="date"
+                      value={form.date}
+                      disabled
+                      tabIndex={-1}
+                      className="h-9 text-xs bg-muted/60 font-mono"
+                    />
+                  </div>
+
+                  {/* Time */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-time" className="text-xs font-medium flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-muted-foreground" /> Time (IST)
+                    </Label>
+                    <Input
+                      id="cs-time"
+                      type="time"
+                      value={form.time}
+                      disabled
+                      tabIndex={-1}
+                      className="h-9 text-xs bg-muted/60 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Customer Name & Vehicle No (2 Columns) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-0.5">
                   {/* Customer Name Autocomplete Typeahead */}
-                  <div ref={customerRef} className="space-y-1.5 relative">
+                  <div ref={customerRef} className="space-y-1 relative">
                     <Label htmlFor="cs-customer" className="text-xs font-medium">
                       Customer Name <span className="text-red-500 font-bold">*</span>
                     </Label>
@@ -1353,70 +1400,99 @@ export function CreditSales() {
                         }}
                         onFocus={() => setShowCustomerDropdown(true)}
                         disabled={isView}
-                        className="h-9 text-xs pr-8"
+                        tabIndex={2}
+                        className="h-9 text-xs pr-10 bg-background"
                         required={!isView}
                         autoComplete="off"
                       />
-                      {loadingCustomers && (
-                        <Loader2 className="w-4 h-4 animate-spin absolute right-2.5 top-2.5 text-muted-foreground" />
-                      )}
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        onClick={() => {
+                          if (!isView) {
+                            setShowCustomerDropdown(prev => !prev);
+                          }
+                        }}
+                        disabled={isView}
+                      >
+                        {loadingCustomers ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
-                    {showCustomerDropdown && customerSuggestions.length > 0 && !isView && (
-                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto bg-white dark:bg-slate-900">
-                        {customerSuggestions.map(c => (
-                          <div
-                            key={c.id}
-                            className="px-3.5 py-2.5 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col"
-                            onClick={() => {
-                              setSelectedCustomer(c);
-                              setCustomerSearch(c.customerName);
-                              setForm(prev => ({ ...prev, customer: c.customerName }));
-                              setCustomerVehicles(c.vehicles || []);
-                              setShowCustomerDropdown(false);
-                              // Auto populate first vehicle if only one exists
-                              if (c.vehicles && c.vehicles.length > 0) {
-                                const firstVeh = c.vehicles[0];
-                                const formatted = formatVehicleNumber(firstVeh.vehicleNumber);
-                                setVehicleSearch(formatted);
-                                setForm(prev => {
-                                  const updated = { ...prev, vehicleNo: formatted };
-                                  if (firstVeh.fuelType) {
-                                    const matchedProduct = products.find(p => 
-                                      p.category === 'Fuel' && 
-                                      p.name.toLowerCase().includes(firstVeh.fuelType.toLowerCase())
-                                    );
-                                    if (matchedProduct) {
-                                      updated.productCategory = 'Fuel';
-                                      updated.productId = matchedProduct.id;
-                                      updated.productName = matchedProduct.name;
-                                      updated.productUnit = matchedProduct.unit;
-                                      updated.rate = '';
-                                      updated.quantity = '';
-                                      updated.totalAmount = '';
+                    {showCustomerDropdown && !isView && (
+                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto bg-white dark:bg-slate-900">
+                        {(() => {
+                          const displayList = customerSearch.trim()
+                            ? customerSuggestions
+                            : allCustomers.slice(0, 10);
+                          
+                          if (displayList.length === 0) {
+                            return (
+                              <div className="px-3.5 py-2 text-xs text-muted-foreground italic">
+                                No customers found
+                              </div>
+                            );
+                          }
+
+                          return displayList.map(c => (
+                            <div
+                              key={c.id}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col"
+                              onClick={() => {
+                                setSelectedCustomer(c);
+                                setCustomerSearch(c.customerName);
+                                setForm(prev => ({ ...prev, customer: c.customerName }));
+                                setCustomerVehicles(c.vehicles || []);
+                                setShowCustomerDropdown(false);
+                                // Auto populate first vehicle if only one exists
+                                if (c.vehicles && c.vehicles.length > 0) {
+                                  const firstVeh = c.vehicles[0];
+                                  const formatted = formatVehicleNumber(firstVeh.vehicleNumber);
+                                  setVehicleSearch(formatted);
+                                  setForm(prev => {
+                                    const updated = { ...prev, vehicleNo: formatted };
+                                    if (firstVeh.fuelType) {
+                                      const matchedProduct = products.find(p => 
+                                        p.category === 'Fuel' && 
+                                        p.name.toLowerCase().includes(firstVeh.fuelType.toLowerCase())
+                                      );
+                                      if (matchedProduct) {
+                                        updated.productCategory = 'Fuel';
+                                        updated.productId = matchedProduct.id;
+                                        updated.productName = matchedProduct.name;
+                                        updated.productUnit = matchedProduct.unit;
+                                        updated.rate = '';
+                                        updated.quantity = '';
+                                        updated.totalAmount = '';
+                                      }
                                     }
-                                  }
-                                  return updated;
-                                });
-                              }
-                            }}
-                          >
-                            <span className="font-semibold text-foreground">{c.customerName}</span>
-                            <span className="text-[10px] text-muted-foreground mt-0.5">Code: {c.customerCode} · Limit: {c.creditLimit || 'N/A'}</span>
-                          </div>
-                        ))}
+                                    return updated;
+                                  });
+                                }
+                              }}
+                            >
+                              <span className="font-semibold text-foreground">{c.customerName}</span>
+                              <span className="text-[10px] text-muted-foreground mt-0.5">Code: {c.customerCode} · Limit: {c.creditLimit || 'N/A'}</span>
+                            </div>
+                          ));
+                        })()}
                       </div>
                     )}
                   </div>
 
                   {/* Vehicle No Autocomplete Typeahead */}
-                  <div ref={vehicleRef} className="space-y-1.5 relative">
+                  <div ref={vehicleRef} className="space-y-1 relative">
                     <Label htmlFor="cs-vehicle" className="text-xs font-medium">
                       Vehicle No. <span className="text-red-500 font-bold">*</span>
                     </Label>
                     <div className="relative">
                       <Input
                         id="cs-vehicle"
-                        placeholder="Search vehicle number (e.g. MH-67-63-4322)..."
+                        placeholder={selectedCustomer ? "Search vehicle number..." : "Select a customer first"}
                         value={vehicleSearch}
                         onChange={e => {
                           const formatted = formatVehicleNumber(e.target.value);
@@ -1424,119 +1500,112 @@ export function CreditSales() {
                           setForm(prev => ({ ...prev, vehicleNo: formatted }));
                           setShowVehicleDropdown(true);
                         }}
-                        onFocus={() => setShowVehicleDropdown(true)}
-                        disabled={isView}
-                        className="h-9 text-xs pr-8 font-mono"
+                        onFocus={() => {
+                          if (selectedCustomer) {
+                            setShowVehicleDropdown(true);
+                          }
+                        }}
+                        disabled={isView || !selectedCustomer}
+                        tabIndex={3}
+                        className="h-9 text-xs pr-10 font-mono bg-background"
                         required={!isView}
                         autoComplete="off"
                       />
-                      {loadingVehicles && (
-                        <Loader2 className="w-4 h-4 animate-spin absolute right-2.5 top-2.5 text-muted-foreground" />
-                      )}
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        onClick={() => {
+                          if (!isView && selectedCustomer) {
+                            setShowVehicleDropdown(prev => !prev);
+                          }
+                        }}
+                        disabled={isView || !selectedCustomer}
+                      >
+                        {loadingVehicles ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
-                    {showVehicleDropdown && vehicleSuggestions.length > 0 && !isView && (
-                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto bg-white dark:bg-slate-900">
-                        {vehicleSuggestions.map((v, i) => (
-                          <div
-                            key={v.id || i}
-                            className="px-3.5 py-2.5 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col"
-                            onClick={() => {
-                              const formatted = formatVehicleNumber(v.vehicleNumber);
-                              setVehicleSearch(formatted);
-                              setForm(prev => {
-                                const updated = { ...prev, vehicleNo: formatted };
-                                
-                                // Auto-select product based on vehicle fuelType
-                                if (v.fuelType) {
-                                  const matchedProduct = products.find(p => 
-                                    p.category === 'Fuel' && 
-                                    p.name.toLowerCase().includes(v.fuelType.toLowerCase())
-                                  );
-                                  if (matchedProduct) {
-                                    updated.productCategory = 'Fuel';
-                                    updated.productId = matchedProduct.id;
-                                    updated.productName = matchedProduct.name;
-                                    updated.productUnit = matchedProduct.unit;
-                                    updated.rate = '';
-                                    updated.quantity = '';
-                                    updated.totalAmount = '';
-                                  }
-                                }
-                                return updated;
-                              });
+                    {showVehicleDropdown && !isView && selectedCustomer && (
+                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto bg-white dark:bg-slate-900">
+                        {(() => {
+                          const displayList = vehicleSearch.trim()
+                            ? vehicleSuggestions
+                            : customerVehicles.slice(0, 10);
+                          
+                          if (displayList.length === 0) {
+                            return (
+                              <div className="px-3.5 py-2 text-xs text-muted-foreground italic">
+                                No vehicles found
+                              </div>
+                            );
+                          }
 
-                              setShowVehicleDropdown(false);
-                              // Auto cross-select customer if not selected
-                              if (!selectedCustomer && v.customer) {
-                                setSelectedCustomer(v.customer);
-                                setCustomerSearch(v.customer.customerName);
-                                setForm(prev => {
-                                  const updated = { ...prev, customer: v.customer.customerName };
-                                  // Re-run the product select inside this context if not already done
-                                  if (v.fuelType) {
-                                    const matchedProduct = products.find(p => 
-                                      p.category === 'Fuel' && 
-                                      p.name.toLowerCase().includes(v.fuelType.toLowerCase())
-                                    );
-                                    if (matchedProduct) {
-                                      updated.productCategory = 'Fuel';
-                                      updated.productId = matchedProduct.id;
-                                      updated.productName = matchedProduct.name;
-                                      updated.productUnit = matchedProduct.unit;
-                                      updated.rate = '';
-                                      updated.quantity = '';
-                                      updated.totalAmount = '';
+                          return displayList.map((v, i) => {
+                            const formatted = formatVehicleNumber(v.vehicleNumber);
+                            return (
+                              <div
+                                key={v.id || i}
+                                className="px-3 py-2 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col"
+                                onClick={() => {
+                                  const formatted = formatVehicleNumber(v.vehicleNumber);
+                                  setVehicleSearch(formatted);
+                                  setForm(prev => {
+                                    const updated = { ...prev, vehicleNo: formatted };
+                                    
+                                    // Auto-select product based on vehicle fuelType
+                                    if (v.fuelType) {
+                                      const matchedProduct = products.find(p => 
+                                        p.category === 'Fuel' && 
+                                        p.name.toLowerCase().includes(v.fuelType.toLowerCase())
+                                      );
+                                      if (matchedProduct) {
+                                        updated.productCategory = 'Fuel';
+                                        updated.productId = matchedProduct.id;
+                                        updated.productName = matchedProduct.name;
+                                        updated.productUnit = matchedProduct.unit;
+                                        updated.rate = '';
+                                        updated.quantity = '';
+                                        updated.totalAmount = '';
+                                      }
                                     }
-                                  }
-                                  return updated;
-                                });
-                                setCustomerVehicles(v.customer.vehicles || []);
-                              }
-                            }}
-                          >
-                            <span className="font-mono font-semibold text-foreground">{formatVehicleNumber(v.vehicleNumber)}</span>
-                            <span className="text-[10px] text-muted-foreground mt-0.5">
-                              {v.vehicleType} {v.make ? `· ${v.make}` : ''} {v.fuelType ? `· ${v.fuelType}` : ''} {v.customer ? `(Owner: ${v.customer.customerName})` : ''}
-                            </span>
-                          </div>
-                        ))}
+                                    return updated;
+                                  });
+
+                                  setShowVehicleDropdown(false);
+                                }}
+                              >
+                                <span className="font-mono font-semibold text-foreground">{formatted}</span>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">
+                                  {v.vehicleType} {v.make ? `· ${v.make}` : ''} {v.fuelType ? `· ${v.fuelType}` : ''}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     )}
                   </div>
-
-                  {/* Status */}
-                  <div className="space-y-1.5">
-                    <Label htmlFor="cs-status" className="text-xs font-medium">
-                      Status <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <Select
-                      value={form.status}
-                      onValueChange={(val: any) => setForm(prev => ({ ...prev, status: val }))}
-                      disabled={isView}
-                    >
-                      <SelectTrigger id="cs-status" className="h-9 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
+              </div>
 
-                {/* ─────────────────────────────────
-                    RIGHT COLUMN: Product & Sale Details
-                ───────────────────────────────── */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">
-                    Product &amp; Sale Details
-                  </h3>
+              {/* ─────────────────────────────────
+                  SECTION 2: PRODUCT & SALE DETAILS (5 Columns)
+              ───────────────────────────────── */}
+              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Product &amp; Fuel Details
+                </h3>
 
+                {/* 5 Column Grid for Category, Product, Rate, Quantity, Total Amount */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                   {/* Product Category */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     <Label htmlFor="cs-category" className="text-xs font-medium flex items-center gap-1">
-                      <Layers className="w-3 h-3" /> Product Category <span className="text-red-500 font-bold">*</span>
+                      <Layers className="w-3 h-3 text-muted-foreground" /> Category <span className="text-red-500 font-bold">*</span>
                     </Label>
                     <Select
                       value={form.productCategory || 'NONE'}
@@ -1546,18 +1615,18 @@ export function CreditSales() {
                       }}
                       disabled={isView}
                     >
-                      <SelectTrigger id="cs-category" className="h-9 text-xs">
-                        <SelectValue placeholder="-- Select Category --" />
+                      <SelectTrigger id="cs-category" className="h-9 text-xs" tabIndex={4}>
+                        <SelectValue placeholder="-- Category --" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="NONE">-- Select Category --</SelectItem>
+                        <SelectItem value="NONE">-- Category --</SelectItem>
                         <SelectItem value="Fuel">
-                          <span className="flex items-center gap-2">
+                          <span className="flex items-center gap-1.5">
                             <Fuel className="w-3.5 h-3.5 text-orange-500" /> Fuel
                           </span>
                         </SelectItem>
                         <SelectItem value="Oil & Lubes">
-                          <span className="flex items-center gap-2">
+                          <span className="flex items-center gap-1.5">
                             <Package className="w-3.5 h-3.5 text-emerald-600" /> Oil &amp; Lubes
                           </span>
                         </SelectItem>
@@ -1565,10 +1634,10 @@ export function CreditSales() {
                     </Select>
                   </div>
 
-                  {/* Product Type (filtered by category) */}
-                  <div className="space-y-1.5">
+                  {/* Product Type */}
+                  <div className="space-y-1">
                     <Label htmlFor="cs-product" className="text-xs font-medium flex items-center gap-1">
-                      <Tag className="w-3 h-3" /> Product <span className="text-red-500 font-bold">*</span>
+                      <Tag className="w-3 h-3 text-muted-foreground" /> Product <span className="text-red-500 font-bold">*</span>
                     </Label>
                     <Select
                       value={form.productId || 'NONE'}
@@ -1578,14 +1647,14 @@ export function CreditSales() {
                       }}
                       disabled={isView || !form.productCategory}
                     >
-                      <SelectTrigger id="cs-product" className="h-9 text-xs">
-                        <SelectValue placeholder={form.productCategory ? '-- Select Product --' : 'Select a category first'} />
+                      <SelectTrigger id="cs-product" className="h-9 text-xs" tabIndex={5}>
+                        <SelectValue placeholder={form.productCategory ? '-- Select --' : 'Category first'} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="NONE">-- Select Product --</SelectItem>
                         {filteredProducts.length === 0 ? (
                           <SelectItem value="_empty" disabled>
-                            {form.productCategory ? 'No products in this category' : 'Select a category first'}
+                            {form.productCategory ? 'No products' : 'Select a category first'}
                           </SelectItem>
                         ) : (
                           filteredProducts.map(p => (
@@ -1598,13 +1667,13 @@ export function CreditSales() {
                     </Select>
                   </div>
 
-                  {/* Rate (auto-filled, editable) */}
-                  <div className="space-y-1.5">
+                  {/* Rate */}
+                  <div className="space-y-1">
                     <Label htmlFor="cs-rate" className="text-xs font-medium">
-                      Rate per Unit (₹) <span className="text-red-500 font-bold">*</span>
+                      Rate/Unit (₹) <span className="text-red-500 font-bold">*</span>
                     </Label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span>
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span>
                       <Input
                         id="cs-rate"
                         type="number"
@@ -1615,75 +1684,65 @@ export function CreditSales() {
                         onChange={e => {
                           setForm(prev => ({ ...prev, rate: e.target.value, quantity: '', totalAmount: '' }));
                         }}
-                        disabled={isView}
-                        className="h-9 text-xs pl-7 text-right font-mono"
+                        disabled={isView || form.productCategory === 'Fuel'}
+                        tabIndex={6}
+                        className={`h-9 text-xs pl-6 text-right font-mono ${(isView || form.productCategory === 'Fuel') ? 'bg-muted' : ''}`}
                         onWheel={e => e.currentTarget.blur()}
                         required={!isView}
                       />
                     </div>
-                    {form.productUnit && (
-                      <p className="text-[11px] text-muted-foreground">Unit: <span className="font-medium">{form.productUnit}</span></p>
-                    )}
                   </div>
 
-                  {/* Quantity ↔ Amount */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-qty" className="text-xs font-medium">
-                        Quantity {form.productUnit ? `(${form.productUnit})` : ''}
-                      </Label>
-                      <Input
-                        id="cs-qty"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="0.00"
-                        value={form.quantity}
-                        onChange={e => handleQuantityChange(e.target.value)}
-                        disabled={isView}
-                        className="h-9 text-xs text-right font-mono"
-                        onWheel={e => e.currentTarget.blur()}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cs-total" className="text-xs font-medium">
-                        Total Amount (₹)
-                      </Label>
-                      <Input
-                        id="cs-total"
-                        type="text"
-                        placeholder="0.00"
-                        value={form.totalAmount}
-                        onChange={e => handleTotalAmountChange(e.target.value)}
-                        disabled={isView}
-                        className="h-9 text-xs text-right font-mono font-semibold"
-                      />
-                    </div>
+                  {/* Quantity */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-qty" className="text-xs font-medium">
+                      Quantity {form.productUnit ? `(${form.productUnit})` : ''} <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Input
+                      id="cs-qty"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={form.quantity}
+                      onChange={e => handleQuantityChange(e.target.value)}
+                      disabled={isView}
+                      tabIndex={7}
+                      className="h-9 text-xs text-right font-mono"
+                      onWheel={e => e.currentTarget.blur()}
+                    />
                   </div>
 
-                  {/* Computed total display */}
-                  {(form.quantity || form.totalAmount) && form.rate && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
-                      <span className="font-semibold text-blue-900 text-xs">Calculated Total:</span>
-                      <span className="text-xl font-bold text-blue-600 font-mono">
-                        ₹{(parseFloat(form.quantity || '0') * parseFloat(form.rate || '0')).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
+                  {/* Total Amount */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-total" className="text-xs font-medium">
+                      Total Amount (₹) <span className="text-muted-foreground font-normal">(Auto)</span>
+                    </Label>
+                    <Input
+                      id="cs-total"
+                      type="text"
+                      placeholder="0.00"
+                      value={form.totalAmount}
+                      onChange={e => handleTotalAmountChange(e.target.value)}
+                      disabled={true}
+                      tabIndex={-1}
+                      className="h-9 text-xs text-right font-mono font-bold text-primary bg-muted/60"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* ─────────────────────────────────
-                  BOTTOM SECTION: MPD & Nozzle (full width)
+                  SECTION 3: DISPENSER ASSIGNMENT
               ───────────────────────────────── */}
-              <div className="mt-6 space-y-4">
-                <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">
+              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                   Dispenser Assignment
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {/* MPD */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     <Label htmlFor="cs-mpd" className="text-xs font-medium">
                       MPD (Dispenser) <span className="text-red-500 font-bold">*</span>
                     </Label>
@@ -1695,7 +1754,7 @@ export function CreditSales() {
                       }}
                       disabled={isView}
                     >
-                      <SelectTrigger id="cs-mpd" className="h-9 text-xs">
+                      <SelectTrigger id="cs-mpd" className="h-9 text-xs" tabIndex={8}>
                         <SelectValue placeholder="-- Select MPD --" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1713,8 +1772,8 @@ export function CreditSales() {
                     </Select>
                   </div>
 
-                  {/* Nozzle (filtered by MPD) */}
-                  <div className="space-y-1.5">
+                  {/* Nozzle */}
+                  <div className="space-y-1">
                     <Label htmlFor="cs-nozzle" className="text-xs font-medium">
                       Nozzle <span className="text-red-500 font-bold">*</span>
                     </Label>
@@ -1731,14 +1790,14 @@ export function CreditSales() {
                       }}
                       disabled={isView || !form.mpdId}
                     >
-                      <SelectTrigger id="cs-nozzle" className="h-9 text-xs">
+                      <SelectTrigger id="cs-nozzle" className="h-9 text-xs" tabIndex={9}>
                         <SelectValue placeholder={form.mpdId ? '-- Select Nozzle --' : 'Select an MPD first'} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="NONE">-- Select Nozzle --</SelectItem>
                         {availableNozzles.length === 0 ? (
                           <SelectItem value="_empty" disabled>
-                            {form.mpdId ? 'No nozzles configured for this MPD' : 'Select an MPD first'}
+                            {form.mpdId ? 'No nozzles configured' : 'Select an MPD first'}
                           </SelectItem>
                         ) : (
                           availableNozzles.map(nz => (
@@ -1753,10 +1812,11 @@ export function CreditSales() {
                   </div>
                 </div>
               </div>
+
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border shrink-0 bg-muted/20">
+            <div className="flex items-center justify-end gap-3 px-6 py-3 border-t border-border shrink-0 bg-muted/20">
               <Button
                 type="button"
                 variant="outline"
