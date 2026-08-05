@@ -682,6 +682,88 @@ export async function deleteMpdApi(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete MPD: ${res.statusText}`);
 }
 
+// --- Meter Readings API ---
+export interface MeterReading {
+  id?: string;
+  date: string;
+  shiftName: string;
+  mpdId?: string;
+  mpdName?: string;
+  nozzleId?: string;
+  nozzleName?: string;
+  fuelType?: string;
+  openingReading: number;
+  closingReading: number;
+  testingQuantity?: number;
+  salesLiters?: number;
+  ratePerLitre?: number;
+  totalAmount?: number;
+  recordedBy?: string;
+  createdAt?: string;
+}
+
+export interface MeterReadingQueryParams extends BaseQueryParams {
+  mpdId?: string;
+  nozzleId?: string;
+  shiftName?: string;
+  fuelType?: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export async function saveMeterReadingsBatchApi(readings: MeterReading[]): Promise<MeterReading[]> {
+  const res = await fetch(`${API_BASE_URL}/meter-readings/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(readings),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to save meter readings: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return (data || []).map((item: any) => ({ ...item, id: String(item.id) }));
+}
+
+export async function fetchLatestMeterReading(nozzleId: string): Promise<number | null> {
+  const res = await fetch(`${API_BASE_URL}/meter-readings/latest?nozzleId=${nozzleId}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data != null ? Number(data) : null;
+}
+
+export async function fetchMeterReadingsHistory(params: MeterReadingQueryParams = {}): Promise<PaginatedResponse<MeterReading>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', params.page.toString());
+  if (params.size !== undefined) query.set('size', params.size.toString());
+  if (params.search) query.set('search', params.search);
+  if (params.mpdId) query.set('mpdId', params.mpdId);
+  if (params.nozzleId) query.set('nozzleId', params.nozzleId);
+  if (params.shiftName) query.set('shiftName', params.shiftName);
+  if (params.fuelType) query.set('fuelType', params.fuelType);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/meter-readings/history?${query.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch meter readings history: ${res.statusText}`);
+  const data = await res.json();
+  return {
+    content: (data.content || []).map((item: any) => ({
+      ...item,
+      id: String(item.id),
+      mpdId: item.mpdId ? String(item.mpdId) : undefined,
+      nozzleId: item.nozzleId ? String(item.nozzleId) : undefined
+    })),
+    totalPages: data.totalPages,
+    totalElements: data.totalElements,
+    number: data.number,
+    size: data.size
+  };
+}
+
+
 
 // --- Shift Master API ---
 export interface ShiftMaster {
@@ -1290,7 +1372,6 @@ export interface OwnUsageRecord {
   nozzleName: string;
   purpose: string;
   remarks: string;
-  status?: string;
   authorizedBy?: string;
   approvedBy?: string;
   createdAt?: string;
@@ -1342,7 +1423,6 @@ export async function fetchOwnUsages(params: OwnUsageQueryParams = {}): Promise<
     nozzleName: item.nozzleName,
     purpose: item.purpose,
     remarks: item.remarks,
-    status: item.status || undefined,
     authorizedBy: item.authorizedBy || '',
     approvedBy: item.approvedBy || '',
     createdAt: item.createdAt,

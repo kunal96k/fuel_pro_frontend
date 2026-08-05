@@ -52,7 +52,17 @@ import {
 } from '../services/api';
 import { toast } from 'sonner';
 
-export function CashCollection() {
+export interface CashCollectionProps {
+  isEmbedded?: boolean;
+  prefilledMpdName?: string;
+  onCloseModal?: () => void;
+}
+
+export function CashCollection({
+  isEmbedded = false,
+  prefilledMpdName = '',
+  onCloseModal
+}: CashCollectionProps = {}) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [mpds, setMpds] = useState<any[]>([]);
   const [shifts, setShifts] = useState<ShiftMaster[]>([]);
@@ -165,14 +175,80 @@ export function CashCollection() {
     loadDuty();
   }, [formRecord.date, formRecord.shiftId]);
 
+  // ── Prefilled MPD Resolution Effect ──
+  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+
+  useEffect(() => {
+    if (prefilledMpdName && mpds.length > 0) {
+      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
+      if (match) {
+        const idx = parseInt(match[1]) - 1;
+        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
+        if (idx >= 0 && idx < sortedMpds.length) {
+          setResolvedMpdName(sortedMpds[idx].mpdName);
+          return;
+        }
+      }
+      setResolvedMpdName(prefilledMpdName);
+    } else {
+      setResolvedMpdName(prefilledMpdName);
+    }
+  }, [prefilledMpdName, mpds]);
+
   // Fetch paginated collections + stats
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [recordsRes, statsRes] = await Promise.all([
-        fetchCashCollections({
-          page: currentPage,
-          size: pageSize,
+      const fetchParams: any = {
+        page: isEmbedded ? 0 : currentPage,
+        size: isEmbedded ? 10000 : pageSize,
+        search: searchTerm,
+        status: statusFilter,
+        shift: shiftFilter,
+        fromDate: fromDateFilter || undefined,
+        toDate: toDateFilter || undefined,
+        sortBy,
+        sortDir
+      };
+
+      const recordsRes = await fetchCashCollections(fetchParams);
+
+      let filteredContent = recordsRes.content;
+      if (isEmbedded && resolvedMpdName) {
+        filteredContent = recordsRes.content.filter(
+          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+        );
+      }
+
+      if (isEmbedded) {
+        const total = filteredContent.length;
+        const totalPagesCount = Math.ceil(total / pageSize) || 1;
+        const start = currentPage * pageSize;
+        const paginatedContent = filteredContent.slice(start, start + pageSize);
+
+        setRecords(paginatedContent);
+        setTotalPages(totalPagesCount);
+        setTotalElements(total);
+      } else {
+        setRecords(filteredContent);
+        setTotalPages(recordsRes.totalPages);
+        setTotalElements(recordsRes.totalElements);
+      }
+
+      // Fetch stats
+      const statsRes = await fetchCashCollectionStats({
+        search: searchTerm,
+        status: statusFilter,
+        shift: shiftFilter,
+        fromDate: fromDateFilter || undefined,
+        toDate: toDateFilter || undefined
+      });
+
+      // Calculate stats based on filtered results if embedded
+      if (isEmbedded && resolvedMpdName) {
+        const allRecordsRes = await fetchCashCollections({
+          page: 0,
+          size: 100000,
           search: searchTerm,
           status: statusFilter,
           shift: shiftFilter,
@@ -180,31 +256,39 @@ export function CashCollection() {
           toDate: toDateFilter || undefined,
           sortBy,
           sortDir
-        }),
-        fetchCashCollectionStats({
-          search: searchTerm,
-          status: statusFilter,
-          shift: shiftFilter,
-          fromDate: fromDateFilter || undefined,
-          toDate: toDateFilter || undefined
-        })
-      ]);
-
-      setRecords(recordsRes.content);
-      setTotalPages(recordsRes.totalPages);
-      setTotalElements(recordsRes.totalElements);
-      setStats(statsRes);
+        });
+        const allFiltered = allRecordsRes.content.filter(
+          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+        );
+        const totalAmount = allFiltered.reduce((sum, r) => sum + r.depositAmount, 0);
+        const verifiedCount = allFiltered.filter(r => r.status === 'Verified').length;
+        const totalEntries = allFiltered.length;
+        setStats({
+          totalAmount,
+          totalEntries,
+          verifiedCount,
+          avgCollection: totalEntries > 0 ? (totalAmount / totalEntries) : 0
+        });
+      } else {
+        setStats(statsRes);
+      }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to fetch cash collection records');
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
+  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName]);
 
   // Trigger reload on filter/page/sort changes
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (isEmbedded && resolvedMpdName) {
+      setCurrentPage(0);
+    }
+  }, [isEmbedded, resolvedMpdName]);
 
   // Denomination input change handler
   const handleDenominationChange = (field: string, value: string) => {
@@ -242,12 +326,21 @@ export function CashCollection() {
   const handleAddNewClick = () => {
     setModalMode('add');
     setActiveRecordId(null);
+    
+    let defaultMpdId = '';
+    if (resolvedMpdName && mpds.length > 0) {
+      const found = mpds.find(m => m.mpdName.toLowerCase() === resolvedMpdName.toLowerCase());
+      if (found) {
+        defaultMpdId = found.id;
+      }
+    }
+
     setFormRecord({
       date: new Date().toISOString().slice(0, 10),
       shift: '',
       shiftId: '',
       employeeId: '',
-      mpdId: '',
+      mpdId: defaultMpdId,
       depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
       status: 'Pending',
       notes500: 0,
@@ -675,177 +768,191 @@ export function CashCollection() {
   };
 
   return (
-    <div className="p-8">
+    <div className={isEmbedded ? "space-y-4" : "p-8"}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="mb-2">Cash Collection</h1>
-          <p className="text-muted-foreground">Log shift cash collections, denomination splits, and verification statuses</p>
+      {isEmbedded ? (
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-foreground">Employee Deposits - {resolvedMpdName}</h3>
+          <Button onClick={handleAddNewClick} className="bg-purple-600 hover:bg-purple-700 gap-1.5">
+            <Plus className="w-4 h-4" />
+            Log Collection
+          </Button>
         </div>
-        <Button onClick={handleAddNewClick} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Log Collection
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="mb-2">Cash Collection</h1>
+            <p className="text-muted-foreground">Log shift cash collections, denomination splits, and verification statuses</p>
+          </div>
+          <Button onClick={handleAddNewClick} className="bg-purple-600 hover:bg-purple-700 text-white gap-2">
+            <Plus className="w-4 h-4" />
+            Log Collection
+          </Button>
+        </div>
+      )}
 
       {/* Stats Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
-            <IndianRupee className="w-5 h-5" />
+      {!isEmbedded && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
+              <IndianRupee className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{formatCurrency(stats.totalAmount)}</p>
+              <p className="text-xs text-muted-foreground">Total Collection</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{formatCurrency(stats.totalAmount)}</p>
-            <p className="text-xs text-muted-foreground">Total Collection</p>
-          </div>
-        </div>
 
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
-            <CalendarDays className="w-5 h-5" />
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{stats.totalEntries}</p>
+              <p className="text-xs text-muted-foreground">Total Logs</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{stats.totalEntries}</p>
-            <p className="text-xs text-muted-foreground">Total Logs</p>
-          </div>
-        </div>
 
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-green-500/10 text-green-500">
-            <TrendingUp className="w-5 h-5" />
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-green-500/10 text-green-500">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{stats.verifiedCount}</p>
+              <p className="text-xs text-muted-foreground">Verified Logs</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{stats.verifiedCount}</p>
-            <p className="text-xs text-muted-foreground">Verified Logs</p>
-          </div>
-        </div>
 
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
-            <Coins className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{formatCurrency(stats.avgCollection)}</p>
-            <p className="text-xs text-muted-foreground">Average Collection</p>
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+              <Coins className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{formatCurrency(stats.avgCollection)}</p>
+              <p className="text-xs text-muted-foreground">Average Collection</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
-      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input 
-              placeholder="Search by Employee, MPD name..." 
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
-            />
+      {!isEmbedded && (
+        <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+            {/* Search */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input 
+                placeholder="Search by Employee, MPD name..." 
+                className="pl-9"
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+              />
+            </div>
+
+            {/* Date Filter Range */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">From</label>
+              <input
+                type="date"
+                value={fromDateFilter}
+                onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">To</label>
+              <input
+                type="date"
+                value={toDateFilter}
+                onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
+            {/* Shift Filter */}
+            <div className="w-36">
+              <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setCurrentPage(0); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Shift" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Shifts</SelectItem>
+                  {shifts.map(s => {
+                    const val = `${s.shiftName} (${s.startTime}-${s.endTime})`;
+                    return (
+                      <SelectItem key={s.id} value={val}>
+                        {s.shiftName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="w-32">
+              <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Status</SelectItem>
+                  <SelectItem value="Pending">Pending</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Verified">Verified</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* Date Filter Range */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">From</label>
-            <input
-              type="date"
-              value={fromDateFilter}
-              onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">To</label>
-            <input
-              type="date"
-              value={toDateFilter}
-              onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
+          <div className="flex items-center gap-3">
+            {/* Export Options */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Download className="w-4 h-4" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
+                  Export All Matching
+                </div>
+                <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to PDF
+                </DropdownMenuItem>
 
-          {/* Shift Filter */}
-          <div className="w-36">
-            <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setCurrentPage(0); }}>
-              <SelectTrigger>
-                <SelectValue placeholder="Shift" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Shifts</SelectItem>
-                {shifts.map(s => {
-                  const val = `${s.shiftName} (${s.startTime}-${s.endTime})`;
-                  return (
-                    <SelectItem key={s.id} value={val}>
-                      {s.shiftName}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Status Filter */}
-          <div className="w-32">
-            <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
-              <SelectTrigger>
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Status</SelectItem>
-                <SelectItem value="Pending">Pending</SelectItem>
-                <SelectItem value="Completed">Completed</SelectItem>
-                <SelectItem value="Verified">Verified</SelectItem>
-              </SelectContent>
-            </Select>
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
+                  Export Selected ({selectedIds.size})
+                </div>
+                <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          {/* Export Options */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Download className="w-4 h-4" />
-                Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
-                Export All Matching
-              </div>
-              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to Excel
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to PDF
-              </DropdownMenuItem>
-
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
-                Export Selected ({selectedIds.size})
-              </div>
-              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to Excel
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      )}
 
       {/* Main Records Table */}
       <div className="bg-card rounded-lg border border-border overflow-hidden">
@@ -1036,7 +1143,7 @@ export function CashCollection() {
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
             <DialogTitle className="flex items-center gap-2 text-lg">
               <IndianRupee className="w-5 h-5 text-primary" />
-              {modalMode === 'add' ? 'Log New Cash Collection' : modalMode === 'edit' ? 'Edit Cash Collection Log' : 'View Collection Details'}
+              {modalMode === 'add' ? `Log New Cash Collection (${resolvedMpdName || 'MPD'})` : modalMode === 'edit' ? 'Edit Cash Collection Log' : 'View Collection Details'}
             </DialogTitle>
           </DialogHeader>
 
@@ -1120,7 +1227,7 @@ export function CashCollection() {
                           employeeId: autoEmpId || prev.employeeId
                         }));
                       }}
-                      disabled={modalMode === 'view'}
+                      disabled={modalMode === 'view' || (isEmbedded && !!resolvedMpdName)}
                     >
                       <SelectTrigger className="h-9 text-xs">
                         <SelectValue placeholder="-- Select MPD --" />
@@ -1363,7 +1470,7 @@ export function CashCollection() {
                 {modalMode === 'view' ? 'Close' : 'Cancel'}
               </Button>
               {modalMode !== 'view' && (
-                <Button type="submit" size="sm" className="gap-2 min-w-[100px]" disabled={saving}>
+                <Button type="submit" size="sm" className="bg-purple-600 hover:bg-purple-700 text-white gap-2 min-w-[100px]" disabled={saving}>
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   {saving ? 'Saving…' : modalMode === 'edit' ? 'Save Changes' : 'Log Collection'}
                 </Button>

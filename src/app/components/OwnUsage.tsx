@@ -26,7 +26,8 @@ import {
   Tag,
   AlertTriangle,
   Car,
-  Gauge
+  Gauge,
+  Droplet
 } from 'lucide-react';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -142,7 +143,25 @@ const INIT_FORM = {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function OwnUsage() {
+export interface OwnUsageProps {
+  embeddedModalOnly?: boolean;
+  openModal?: boolean;
+  modalMode?: 'add' | 'edit' | 'view';
+  editRecord?: any;
+  prefilledMpdName?: string;
+  onCloseModal?: () => void;
+  isEmbedded?: boolean;
+}
+
+export function OwnUsage({
+  embeddedModalOnly = false,
+  openModal = false,
+  modalMode: initialModalMode = 'add',
+  editRecord = null,
+  prefilledMpdName = '',
+  onCloseModal,
+  isEmbedded = false
+}: OwnUsageProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [mpds, setMpds] = useState<MPD[]>([]);
@@ -222,23 +241,64 @@ export function OwnUsage() {
     ? products.filter(p => p.category === form.productCategory)
     : products;
 
+  // ── Prefilled MPD Resolution Effect ──
+  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+
+  useEffect(() => {
+    if (prefilledMpdName && mpds.length > 0) {
+      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
+      if (match) {
+        const idx = parseInt(match[1]) - 1;
+        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
+        if (idx >= 0 && idx < sortedMpds.length) {
+          setResolvedMpdName(sortedMpds[idx].mpdName);
+          return;
+        }
+      }
+      setResolvedMpdName(prefilledMpdName);
+    } else {
+      setResolvedMpdName(prefilledMpdName);
+    }
+  }, [prefilledMpdName, mpds]);
+
   // ── Load records ──
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetchOwnUsages({
-        page: currentPage,
-        size: pageSize,
+      const fetchParams: any = {
+        page: isEmbedded ? 0 : currentPage,
+        size: isEmbedded ? 10000 : pageSize,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
         purpose: purposeFilter !== 'ALL' ? purposeFilter : undefined,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy, sortDir
-      });
-      setRecords(res.content);
-      setTotalPages(res.totalPages);
-      setTotalElements(res.totalElements);
+      };
+
+      const res = await fetchOwnUsages(fetchParams);
+
+      let filteredContent = res.content;
+      if (isEmbedded && resolvedMpdName) {
+        filteredContent = res.content.filter(
+          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+        );
+      }
+
+      if (isEmbedded) {
+        const total = filteredContent.length;
+        const totalPagesCount = Math.ceil(total / pageSize) || 1;
+        const start = currentPage * pageSize;
+        const paginatedContent = filteredContent.slice(start, start + pageSize);
+
+        setRecords(paginatedContent);
+        setTotalPages(totalPagesCount);
+        setTotalElements(total);
+      } else {
+        setRecords(filteredContent);
+        setTotalPages(res.totalPages);
+        setTotalElements(res.totalElements);
+      }
 
       // Fetch stats globally (without pagination limits)
       const statsRes = await fetchOwnUsages({
@@ -252,13 +312,26 @@ export function OwnUsage() {
         sortBy,
         sortDir
       });
-      setStatsRecords(statsRes.content);
+
+      let filteredStats = statsRes.content;
+      if (isEmbedded && resolvedMpdName) {
+        filteredStats = statsRes.content.filter(
+          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+        );
+      }
+      setStatsRecords(filteredStats);
     } catch {
       toast.error('Failed to load own usage records.');
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
+  }, [currentPage, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName]);
+
+  useEffect(() => {
+    if (isEmbedded && resolvedMpdName) {
+      setCurrentPage(0);
+    }
+  }, [isEmbedded, resolvedMpdName]);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
 
@@ -384,11 +457,24 @@ export function OwnUsage() {
     } catch {
       nextSlip = 'OWN-TEMP';
     }
+    
+    let defaultMpdId = '';
+    let defaultMpdName = '';
+    if (resolvedMpdName && mpds.length > 0) {
+      const found = mpds.find(m => m.mpdName.toLowerCase() === resolvedMpdName.toLowerCase());
+      if (found) {
+        defaultMpdId = found.id;
+        defaultMpdName = found.mpdName;
+      }
+    }
+
     setForm({
       ...INIT_FORM,
       slipNo: nextSlip,
       date: today,
-      usageTime: getISTTimeString()
+      usageTime: getISTTimeString(),
+      mpdId: defaultMpdId,
+      mpdName: defaultMpdName
     });
     setVehicleSearch('');
     setShowModal(true);
@@ -433,20 +519,18 @@ export function OwnUsage() {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.vehicleNumber) { toast.warning('Please select or enter a vehicle.'); return; }
-    if (!form.productName) { toast.warning('Please select a product.'); return; }
-    if (!form.quantity || parseFloat(form.quantity) <= 0) { toast.warning('Please enter a valid quantity.'); return; }
-    if (!form.rate || parseFloat(form.rate) <= 0) { toast.warning('Please enter a valid rate.'); return; }
     if (!form.purpose) { toast.warning('Please select a usage purpose.'); return; }
-    if (!form.mpdName) { toast.warning('Please select an MPD.'); return; }
-    if (!form.nozzleName) { toast.warning('Please select a nozzle.'); return; }
+
+    const qtyNum = parseFloat(form.quantity || '0') || 0;
+    const rateNum = parseFloat(form.rate || '0') || 0;
+    const totalAmt = parseFloat(form.totalAmount || '0') || (qtyNum * rateNum);
 
     const payload: Omit<OwnUsageRecord, 'id' | 'slipNo'> = {
       date: form.date, usageTime: form.usageTime,
-      vehicleNumber: form.vehicleNumber, vehicleType: form.vehicleType, fuelType: form.fuelType,
-      productCategory: form.productCategory || '', productName: form.productName, productUnit: form.productUnit,
-      quantity: parseFloat(form.quantity), rate: parseFloat(form.rate), totalAmount: parseFloat(form.totalAmount),
-      mpdName: form.mpdName, nozzleName: form.nozzleName,
+      vehicleNumber: form.vehicleNumber || '-', vehicleType: form.vehicleType || '', fuelType: form.fuelType || '',
+      productCategory: form.productCategory || '', productName: form.productName || '-', productUnit: form.productUnit || 'L',
+      quantity: qtyNum, rate: rateNum, totalAmount: totalAmt,
+      mpdName: form.mpdName || '-', nozzleName: form.nozzleName || '-',
       purpose: form.purpose, remarks: form.remarks,
       authorizedBy: form.authorizedBy, approvedBy: form.approvedBy,
     };
@@ -544,101 +628,229 @@ export function OwnUsage() {
 
   const isView = modalMode === 'view';
 
+  if (embeddedModalOnly) {
+    if (!showModal) return null;
+    return (
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+        <DialogContent
+          className="flex flex-col overflow-hidden p-0"
+          style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
+        >
+          {/* Modal Header */}
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                  <Droplet className="w-5 h-5 text-cyan-600" />
+                  {modalMode === 'add' ? `Daily Operations > Own Usage > Add Own Usage Record (${resolvedMpdName || 'MPD'})` : modalMode === 'edit' ? `Daily Operations > Own Usage > Edit Own Usage Record (${resolvedMpdName || 'MPD'})` : `Daily Operations > Own Usage > View Own Usage Record (${resolvedMpdName || 'MPD'})`}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  {modalMode === 'add' ? 'Fill in details to record own operational or personal fuel usage' : modalMode === 'edit' ? 'Update own usage record details' : 'View complete own usage record details'}
+                </DialogDescription>
+              </div>
+              <Badge variant="outline" className="font-mono text-xs px-2.5 py-1 bg-cyan-500/10 text-cyan-600 border-cyan-500/20">
+                {modalMode === 'add' ? 'NEW ENTRY' : modalMode === 'edit' ? 'EDIT MODE' : 'READ ONLY'}
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {/* Modal Body */}
+          <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* SECTION 1: DATE, TIME & PURPOSE */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Date, Time &amp; Usage Purpose</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="ou-date" className="text-xs font-medium">Date</Label>
+                  <Input id="ou-date" type="date" disabled={isView} value={form.date} onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))} tabIndex={1} className="h-9 text-xs bg-background" required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ou-time" className="text-xs font-medium">Time (IST)</Label>
+                  <Input id="ou-time" type="time" disabled={isView} value={form.time} onChange={e => setForm(prev => ({ ...prev, time: e.target.value }))} tabIndex={2} className="h-9 text-xs bg-background font-mono" required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ou-purpose" className="text-xs font-medium">Usage Purpose <span className="text-red-500 font-bold">*</span></Label>
+                  <Select value={form.purpose} onValueChange={v => setForm(prev => ({ ...prev, purpose: v as any }))} disabled={isView}>
+                    <SelectTrigger id="ou-purpose" tabIndex={3} className="h-9 text-xs"><SelectValue placeholder="Select Purpose" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Personal">Personal</SelectItem>
+                      <SelectItem value="Maintenance">Maintenance</SelectItem>
+                      <SelectItem value="Office Use">Office Use</SelectItem>
+                      <SelectItem value="Generator">Generator</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: VEHICLE & PRODUCT */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Vehicle &amp; Product Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="ou-vehicle" className="text-xs font-medium">Vehicle / Equipment (Optional)</Label>
+                  <Input id="ou-vehicle" disabled={isView} value={form.vehicleNo} onChange={e => setForm(prev => ({ ...prev, vehicleNo: e.target.value.toUpperCase() }))} tabIndex={4} className="h-9 text-xs font-mono" placeholder="e.g. MH-01-AB-1234 or Generator" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ou-product" className="text-xs font-medium">Product (Optional)</Label>
+                  <Select value={form.productId} onValueChange={handleProductChange} disabled={isView || loadingMaster}>
+                    <SelectTrigger id="ou-product" tabIndex={5} className="h-9 text-xs"><SelectValue placeholder="Select Product" /></SelectTrigger>
+                    <SelectContent>{filteredProducts.map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ou-qty" className="text-xs font-medium">Quantity (L) (Optional)</Label>
+                  <Input id="ou-qty" type="number" min="0" step="0.01" disabled={isView} value={form.quantity} onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))} onWheel={e => e.currentTarget.blur()} tabIndex={6} className="h-9 text-xs font-mono bg-background" placeholder="0.00" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Total Amount (₹)</Label>
+                  <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted font-bold text-cyan-600 font-mono text-xs cursor-not-allowed">
+                    {form.totalAmount ? formatCurrency(parseFloat(form.totalAmount)) : '₹ 0.00'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 3: AUTHORIZATION */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Authorization &amp; Notes</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="ou-auth" className="text-xs font-medium">Authorized By</Label>
+                  <Input id="ou-auth" disabled={isView} value={form.authorizedBy} onChange={e => setForm(prev => ({ ...prev, authorizedBy: e.target.value }))} tabIndex={7} className="h-9 text-xs" placeholder="Person authorizing this entry" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ou-appr" className="text-xs font-medium">Approved By</Label>
+                  <Input id="ou-appr" disabled={isView} value={form.approvedBy} onChange={e => setForm(prev => ({ ...prev, approvedBy: e.target.value }))} tabIndex={8} className="h-9 text-xs" placeholder="Manager or Owner" />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <DialogFooter className="pt-4 border-t border-border gap-2">
+              <Button type="button" variant="outline" onClick={() => { setShowModal(false); onCloseModal?.(); }}>Cancel</Button>
+              {!isView && (
+                <Button type="submit" disabled={saving} className="min-w-[120px] bg-cyan-600 hover:bg-cyan-700">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {modalMode === 'add' ? 'Save Record' : 'Update Record'}
+                </Button>
+              )}
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <div className="p-8">
+    <div className={isEmbedded ? "p-0" : "p-8"}>
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="mb-2">Own Usage</h1>
-          <p className="text-muted-foreground">
-            Track pump owner's personal and operational fuel usage across all registered vehicles
-          </p>
+      {!isEmbedded ? (
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="mb-2">Own Usage</h1>
+            <p className="text-muted-foreground">
+              Track pump owner's personal and operational fuel usage across all registered vehicles
+            </p>
+          </div>
+          <Button onClick={handleAddNew} className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2" id="btn-add-own-usage">
+            <Plus className="w-4 h-4" /> Add Own Usage
+          </Button>
         </div>
-        <Button onClick={handleAddNew} className="gap-2" id="btn-add-own-usage">
-          <Plus className="w-4 h-4" /> Add Own Usage
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Own Use - {resolvedMpdName}</h3>
+          <Button onClick={handleAddNew} className="bg-cyan-600 hover:bg-cyan-700 gap-1.5" id="btn-add-own-usage">
+            <Plus className="w-4 h-4" /> Add Own Usage
+          </Button>
+        </div>
+      )}
 
       {/* ── Stats Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-orange-500/10 text-orange-500">
-            <IndianRupee className="w-5 h-5" />
+      {!isEmbedded && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-orange-500/10 text-orange-500">
+              <IndianRupee className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</p>
+              <p className="text-xs text-muted-foreground">Total Usage Value (Overall)</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</p>
-            <p className="text-xs text-muted-foreground">Total Usage Value (Overall)</p>
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{totalElements}</p>
+              <p className="text-xs text-muted-foreground">Total Records</p>
+            </div>
+          </div>
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+              <Gauge className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{statsRecords.reduce((s, r) => s + r.quantity, 0).toFixed(2)} L</p>
+              <p className="text-xs text-muted-foreground">Total Qty Used (Overall)</p>
+            </div>
           </div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
-            <CalendarDays className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{totalElements}</p>
-            <p className="text-xs text-muted-foreground">Total Records</p>
-          </div>
-        </div>
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
-            <Gauge className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{statsRecords.reduce((s, r) => s + r.quantity, 0).toFixed(2)} L</p>
-            <p className="text-xs text-muted-foreground">Total Qty Used (Overall)</p>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ── Filter / Search Bar ── */}
-      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search vehicle, slip no, product, purpose..." className="pl-9" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }} />
+      {!isEmbedded && (
+        <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder="Search vehicle, slip no, product, purpose..." className="pl-9" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">From</label>
+              <input type="date" value={fromDateFilter} onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }} className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">To</label>
+              <input type="date" value={toDateFilter} onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }} className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            </div>
+            <div className="w-36">
+              <Select value={purposeFilter} onValueChange={v => { setPurposeFilter(v); setCurrentPage(0); }}>
+                <SelectTrigger><SelectValue placeholder="Purpose" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Purposes</SelectItem>
+                  <SelectItem value="Personal">Personal</SelectItem>
+                  <SelectItem value="Maintenance">Maintenance</SelectItem>
+                  <SelectItem value="Office Use">Office Use</SelectItem>
+                  <SelectItem value="Generator">Generator</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">From</label>
-            <input type="date" value={fromDateFilter} onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }} className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">To</label>
-            <input type="date" value={toDateFilter} onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }} className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-          </div>
-          <div className="w-36">
-            <Select value={purposeFilter} onValueChange={v => { setPurposeFilter(v); setCurrentPage(0); }}>
-              <SelectTrigger><SelectValue placeholder="Purpose" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Purposes</SelectItem>
-                <SelectItem value="Personal">Personal</SelectItem>
-                <SelectItem value="Maintenance">Maintenance</SelectItem>
-                <SelectItem value="Office Use">Office Use</SelectItem>
-                <SelectItem value="Generator">Generator</SelectItem>
-                <SelectItem value="Other">Other</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2"><Download className="w-4 h-4" /> Export</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">Export All Matching</div>
-              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to CSV</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to Excel</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to PDF</DropdownMenuItem>
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">Export Selected ({selectedIds.size})</div>
-              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to CSV</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to Excel</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to PDF</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2"><Download className="w-4 h-4" /> Export</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">Export All Matching</div>
+                <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to CSV</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to Excel</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs"><FileDown className="w-4 h-4 mr-2 text-muted-foreground" /> Export All to PDF</DropdownMenuItem>
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">Export Selected ({selectedIds.size})</div>
+                <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to CSV</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to Excel</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}><CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" /> Export Selected to PDF</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Main Table ── */}
       <div className="bg-card rounded-lg border border-border overflow-hidden">
@@ -672,8 +884,8 @@ export function OwnUsage() {
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('date')}>
                     <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-muted-foreground" /> Date &amp; Time<SortIcon field="date" /></div>
                   </th>
-                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('vehicleNumber')}>
-                    <div className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-muted-foreground" /> Vehicle<SortIcon field="vehicleNumber" /></div>
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('quantity')}>
+                    <div className="flex items-center gap-1.5"><Droplet className="w-3.5 h-3.5 text-muted-foreground" /> Quantity (L)<SortIcon field="quantity" /></div>
                   </th>
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('productName')}>
                     <div className="flex items-center gap-1.5"><Fuel className="w-3.5 h-3.5 text-muted-foreground" /> Product<SortIcon field="productName" /></div>
@@ -702,11 +914,8 @@ export function OwnUsage() {
                         <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {rec.usageTime}</span>
                       </div>
                     </td>
-                    <td className="p-4">
-                      <div>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">{formatVehicleNumber(rec.vehicleNumber)}</span>
-                        <p className="text-xs text-muted-foreground mt-0.5">{rec.vehicleType} · {rec.fuelType}</p>
-                      </div>
+                    <td className="p-4 font-mono text-sm font-semibold text-cyan-600">
+                      {rec.quantity ? `${rec.quantity.toFixed(2)} ${rec.productUnit || 'L'}` : '-'}
                     </td>
                     <td className="p-4">
                       <div>
@@ -738,7 +947,9 @@ export function OwnUsage() {
                 <tr>
                   <td colSpan={8} className="p-4 text-left font-semibold">Page Total ({records.length} records)</td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">{formatCurrency(records.reduce((s, r) => s + r.totalAmount, 0))}</td>
-                  <td className="p-4 text-muted-foreground"></td>
+                  <td colSpan={1} className="p-4 text-muted-foreground text-left">
+                    Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -761,7 +972,7 @@ export function OwnUsage() {
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW MODAL
       ════════════════════════════════════════════════════ */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -859,7 +1070,6 @@ export function OwnUsage() {
                           disabled={loadingMaster}
                           tabIndex={2}
                           className="h-9 text-xs font-mono"
-                          required
                           autoComplete="off"
                         />
                         {loadingMaster && (
@@ -1006,7 +1216,7 @@ export function OwnUsage() {
                   {/* Product */}
                   <div className="space-y-1">
                     <Label htmlFor="ou-product" className="text-xs font-medium">
-                      Product <span className="text-red-500 font-bold">*</span>
+                      Product
                     </Label>
                     {isView ? (
                       <Input
@@ -1048,7 +1258,7 @@ export function OwnUsage() {
                   {/* Quantity */}
                   <div className="space-y-1">
                     <Label htmlFor="ou-qty" className="text-xs font-medium">
-                      Quantity ({form.productUnit || 'unit'}) <span className="text-red-500 font-bold">*</span>
+                      Quantity (L)
                     </Label>
                     <Input
                       id="ou-qty"
@@ -1061,7 +1271,6 @@ export function OwnUsage() {
                       onWheel={e => e.currentTarget.blur()}
                       tabIndex={8}
                       className="h-9 text-xs font-mono bg-background"
-                      required
                     />
                   </div>
 
@@ -1089,7 +1298,7 @@ export function OwnUsage() {
                       {/* MPD */}
                       <div className="space-y-1">
                         <Label htmlFor="ou-mpd" className="text-xs font-medium">
-                          MPD Dispenser <span className="text-red-500 font-bold">*</span>
+                          MPD Dispenser
                         </Label>
                         {isView ? (
                           <Input
@@ -1100,7 +1309,7 @@ export function OwnUsage() {
                             className="h-9 text-xs bg-muted"
                           />
                         ) : (
-                          <Select value={form.mpdId} onValueChange={handleMpdChange} disabled={loadingMaster}>
+                          <Select value={form.mpdId} onValueChange={handleMpdChange} disabled={loadingMaster || (isEmbedded && !!resolvedMpdName)}>
                             <SelectTrigger id="ou-mpd" tabIndex={9} className="h-9 text-xs">
                               <SelectValue placeholder="Select MPD" />
                             </SelectTrigger>
@@ -1116,7 +1325,7 @@ export function OwnUsage() {
                       {/* Nozzle */}
                       <div className="space-y-1">
                         <Label htmlFor="ou-nozzle" className="text-xs font-medium">
-                          Nozzle <span className="text-red-500 font-bold">*</span>
+                          Nozzle
                         </Label>
                         {isView ? (
                           <Input
@@ -1174,7 +1383,7 @@ export function OwnUsage() {
                 <div className="flex gap-3">
                   <Button type="button" variant="outline" size="sm" onClick={() => setShowModal(false)}>{isView ? 'Close' : 'Cancel'}</Button>
                   {!isView && (
-                    <Button type="submit" size="sm" disabled={saving} className="gap-2">
+                    <Button type="submit" size="sm" disabled={saving} className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2">
                       {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       {modalMode === 'add' ? 'Add Record' : 'Save Changes'}
                     </Button>

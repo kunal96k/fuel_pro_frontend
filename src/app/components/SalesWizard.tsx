@@ -55,7 +55,7 @@ export function SalesWizard({ saleType = 'fuel-sale' }: SalesWizardProps) {
 
   if (saleType === 'fuel-sale' || saleType === 'oil-sale') {
     return (
-      <div className="p-6 max-w-7xl mx-auto">
+      <div className="p-8">
         <FuelSaleForm defaultTab={saleType === 'oil-sale' ? 'Oil Sale' : 'MPD_1'} />
       </div>
     );

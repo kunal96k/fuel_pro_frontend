@@ -28,6 +28,7 @@ import {
   Truck,
   AlertTriangle,
   Tag,
+  Droplet,
   Layers,
   Fuel,
   Hash,
@@ -135,7 +136,25 @@ const INIT_FORM = {
   time: getISTTimeString()
 };
 
-export function CreditSales() {
+export interface CreditSalesProps {
+  embeddedModalOnly?: boolean;
+  openModal?: boolean;
+  modalMode?: 'add' | 'edit' | 'view';
+  editRecord?: any;
+  prefilledMpdName?: string;
+  onCloseModal?: () => void;
+  isEmbedded?: boolean;
+}
+
+export function CreditSales({
+  embeddedModalOnly = false,
+  openModal = false,
+  modalMode: initialModalMode = 'add',
+  editRecord = null,
+  prefilledMpdName = '',
+  onCloseModal,
+  isEmbedded = false
+}: CreditSalesProps) {
   // ── Master data ──
   const [products, setProducts] = useState<Product[]>([]);
   const [mpds, setMpds] = useState<MPD[]>([]);
@@ -251,6 +270,33 @@ export function CreditSales() {
   useEffect(() => {
     loadRecords();
   }, [loadRecords]);
+
+  // ── Prefilled MPD Resolution Effect ──
+  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+
+  useEffect(() => {
+    if (prefilledMpdName && mpds.length > 0) {
+      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
+      if (match) {
+        const idx = parseInt(match[1]) - 1;
+        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
+        if (idx >= 0 && idx < sortedMpds.length) {
+          setResolvedMpdName(sortedMpds[idx].mpdName);
+          return;
+        }
+      }
+      setResolvedMpdName(prefilledMpdName);
+    } else {
+      setResolvedMpdName(prefilledMpdName);
+    }
+  }, [prefilledMpdName, mpds]);
+
+  useEffect(() => {
+    if (isEmbedded && resolvedMpdName) {
+      setMpdFilter(resolvedMpdName);
+      setCurrentPage(0);
+    }
+  }, [isEmbedded, resolvedMpdName]);
 
   // ─────────────────────────────────────────────
   // Load master data once on mount
@@ -488,12 +534,24 @@ export function CreditSales() {
     setVehicleSearch('');
     setSlipNoExists(false);
     
+    let defaultMpdId = '';
+    let defaultMpdName = '';
+    if (resolvedMpdName && mpds.length > 0) {
+      const found = mpds.find(m => m.mpdName.toLowerCase() === resolvedMpdName.toLowerCase());
+      if (found) {
+        defaultMpdId = found.id;
+        defaultMpdName = found.mpdName;
+      }
+    }
+
     setForm({
       ...INIT_FORM,
       date: getISTDateString(),
       time: getISTTimeString(),
       voucherNo: 'CRVCH...',
-      slipNo: 'SLIP...'
+      slipNo: 'SLIP...',
+      mpdId: defaultMpdId,
+      mpdName: defaultMpdName
     });
     
     setShowModal(true);
@@ -503,7 +561,13 @@ export function CreditSales() {
         fetchNextVoucherNo(),
         fetchNextSlipNo(getISTDateString())
       ]);
-      setForm(prev => ({ ...prev, voucherNo: vch, slipNo: slp }));
+      setForm(prev => ({ 
+        ...prev, 
+        voucherNo: vch, 
+        slipNo: slp,
+        mpdId: prev.mpdId || defaultMpdId,
+        mpdName: prev.mpdName || defaultMpdName
+      }));
     } catch {
       toast.error('Failed to pre-fetch auto-generated voucher codes.');
     }
@@ -918,170 +982,323 @@ export function CreditSales() {
 
   const isView = modalMode === 'view';
 
+  if (embeddedModalOnly) {
+    if (!showModal) return null;
+    return (
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+        <DialogContent
+          className="flex flex-col overflow-hidden p-0"
+          style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
+        >
+          {/* Modal Header */}
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-primary" />
+                  {modalMode === 'add' ? `Daily Operations > Credit Sales > Add New Credit Sale (${resolvedMpdName || 'MPD'})` : modalMode === 'edit' ? `Daily Operations > Credit Sales > Edit Credit Sale (${resolvedMpdName || 'MPD'})` : `Daily Operations > Credit Sales > View Credit Sale (${resolvedMpdName || 'MPD'})`}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  {modalMode === 'add' ? 'Fill in details to record a new credit fuel/lubricant sale' : modalMode === 'edit' ? 'Update credit sale record details' : 'View complete credit sale record details'}
+                </DialogDescription>
+              </div>
+              <Badge variant="outline" className="font-mono text-xs px-2.5 py-1 bg-primary/5 text-primary border-primary/20">
+                {modalMode === 'add' ? 'NEW ENTRY' : modalMode === 'edit' ? 'EDIT MODE' : 'READ ONLY'}
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {/* Modal Body */}
+          <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* SECTION 1: VOUCHER, SLIP & TIME */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Voucher &amp; Slip Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="cs-voucher" className="text-xs font-medium">Voucher Number</Label>
+                  <Input id="cs-voucher" disabled value={form.voucherNo || (modalMode === 'add' ? 'CS-AUTO' : '')} tabIndex={-1} className="h-9 text-xs font-mono bg-muted" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-slip" className="text-xs font-medium">Slip Number <span className="text-red-500 font-bold">*</span></Label>
+                  <Input id="cs-slip" disabled={isView} value={form.slipNo} onChange={e => handleSlipNoChange(e.target.value)} tabIndex={1} className="h-9 text-xs font-mono bg-background" placeholder="e.g. SLIP-2026-001" required />
+                  {slipError && <p className="text-[10px] text-red-500 font-medium absolute mt-0.5">{slipError}</p>}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-date" className="text-xs font-medium">Date</Label>
+                  <Input id="cs-date" type="date" disabled={isView} value={form.date} onChange={e => setForm(prev => ({ ...prev, date: e.target.value }))} tabIndex={2} className="h-9 text-xs bg-background" required />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-time" className="text-xs font-medium">Time (IST)</Label>
+                  <Input id="cs-time" type="time" disabled={isView} value={form.time} onChange={e => setForm(prev => ({ ...prev, time: e.target.value }))} tabIndex={3} className="h-9 text-xs bg-background font-mono" required />
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: CUSTOMER & VEHICLE */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Customer &amp; Vehicle Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1 relative">
+                  <Label htmlFor="cs-customer" className="text-xs font-medium">Customer Name <span className="text-red-500 font-bold">*</span></Label>
+                  <Input id="cs-customer" disabled={isView} value={customerSearch} onChange={e => handleCustomerSearchChange(e.target.value)} onFocus={() => setShowCustDropdown(true)} tabIndex={4} className="h-9 text-xs font-medium" placeholder="Search customer name..." required autoComplete="off" />
+                  {showCustDropdown && customerSuggestions.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto bg-white dark:bg-slate-900">
+                      {customerSuggestions.map(c => (
+                        <div key={c.id} className="px-3 py-2 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col" onClick={() => handleCustomerSelect(c)}>
+                          <span className="font-semibold text-foreground">{c.name}</span>
+                          <span className="text-[10px] text-muted-foreground mt-0.5">{c.phone || c.email || 'Registered Customer'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1 relative">
+                  <Label htmlFor="cs-vehicle" className="text-xs font-medium">Vehicle / Truck Number</Label>
+                  <Input id="cs-vehicle" disabled={isView || !form.customer} value={vehicleSearch} onChange={e => handleVehicleSearchChange(e.target.value.toUpperCase())} onFocus={() => setShowVehicleDropdown(true)} tabIndex={5} className="h-9 text-xs font-mono" placeholder={!form.customer ? 'Select customer first' : 'Enter truck/vehicle no...'} autoComplete="off" />
+                  {showVehicleDropdown && vehicleSuggestions.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto bg-white dark:bg-slate-900">
+                      {vehicleSuggestions.map((v, i) => (
+                        <div key={i} className="px-3 py-2 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors" onClick={() => handleVehicleSelect(v)}>
+                          <span className="font-mono font-semibold text-foreground">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 3: PRODUCT & PRICING */}
+            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Product &amp; Pricing Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="cs-cat" className="text-xs font-medium">Category</Label>
+                  <Select value={form.productCategory} onValueChange={v => setForm(prev => ({ ...prev, productCategory: v as any, productId: '', productName: '', productUnit: '' }))} disabled={isView}>
+                    <SelectTrigger id="cs-cat" tabIndex={6} className="h-9 text-xs"><SelectValue placeholder="Select Category" /></SelectTrigger>
+                    <SelectContent><SelectItem value="Fuel">Fuel</SelectItem><SelectItem value="Oil & Lubes">Oil &amp; Lubes</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-product" className="text-xs font-medium">Product <span className="text-red-500 font-bold">*</span></Label>
+                  <Select value={form.productId} onValueChange={handleProductChange} disabled={isView || loadingMaster}>
+                    <SelectTrigger id="cs-product" tabIndex={7} className="h-9 text-xs"><SelectValue placeholder="Select Product" /></SelectTrigger>
+                    <SelectContent>{filteredProducts.map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-rate" className="text-xs font-medium">Rate (₹/unit)</Label>
+                  <Input id="cs-rate" type="number" disabled value={form.rate} tabIndex={-1} className="h-9 text-xs bg-muted/60 font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cs-qty" className="text-xs font-medium">Quantity ({form.productUnit || 'unit'}) <span className="text-red-500 font-bold">*</span></Label>
+                  <Input id="cs-qty" type="number" min="0.01" step="0.01" disabled={isView} value={form.quantity} onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))} onWheel={e => e.currentTarget.blur()} tabIndex={8} className="h-9 text-xs font-mono bg-background" required />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Total Amount (₹)</Label>
+                  <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted font-bold text-primary font-mono text-xs cursor-not-allowed">
+                    {form.totalAmount ? formatCurrency(parseFloat(form.totalAmount)) : '₹ 0.00'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <DialogFooter className="pt-4 border-t border-border gap-2">
+              <Button type="button" variant="outline" onClick={() => { setShowModal(false); onCloseModal?.(); }}>Cancel</Button>
+              {!isView && (
+                <Button type="submit" disabled={saving || !!slipError} className="min-w-[120px] bg-blue-600 hover:bg-blue-700">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  {modalMode === 'add' ? 'Save Record' : 'Update Record'}
+                </Button>
+              )}
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <div className="p-8">
+    <div className={isEmbedded ? "p-0" : "p-8"}>
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="mb-2">Credit Sales</h1>
-          <p className="text-muted-foreground">Manage vehicle-based credit fuel &amp; oil sales with slip generation</p>
+      {!isEmbedded ? (
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="mb-2">Credit Sales</h1>
+            <p className="text-muted-foreground">Manage vehicle-based credit fuel &amp; oil sales with slip generation</p>
+          </div>
+          <Button onClick={handleAddNew} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+            <Plus className="w-4 h-4" />
+            Add New Sale
+          </Button>
         </div>
-        <Button onClick={handleAddNew} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Add New Sale
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Credit Sales - {resolvedMpdName}</h3>
+          <Button onClick={handleAddNew} className="bg-blue-600 hover:bg-blue-700 gap-1.5">
+            <Plus className="w-4 h-4" />
+            Add New Sale
+          </Button>
+        </div>
+      )}
 
       {/* ── Stats Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
-            <IndianRupee className="w-5 h-5" />
+      {!isEmbedded && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
+              <IndianRupee className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">
+                {formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}
+              </p>
+              <p className="text-xs text-muted-foreground">Total Credit Sales (Overall)</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">
-              {formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}
-            </p>
-            <p className="text-xs text-muted-foreground">Total Credit Sales (Overall)</p>
-          </div>
-        </div>
 
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
-            <CalendarDays className="w-5 h-5" />
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-500">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">{totalElements}</p>
+              <p className="text-xs text-muted-foreground">Total Slip Records</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">{totalElements}</p>
-            <p className="text-xs text-muted-foreground">Total Slip Records</p>
-          </div>
-        </div>
 
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
-            <CreditCard className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xl font-bold font-mono">
-              {formatCurrency(statsRecords.length > 0 ? (statsRecords.reduce((s, r) => s + r.totalAmount, 0) / statsRecords.length) : 0)}
-            </p>
-            <p className="text-xs text-muted-foreground">Avg. Sale (Overall)</p>
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-500">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">
+                {formatCurrency(statsRecords.length > 0 ? (statsRecords.reduce((s, r) => s + r.totalAmount, 0) / statsRecords.length) : 0)}
+              </p>
+              <p className="text-xs text-muted-foreground">Avg. Sale (Overall)</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Filter / Search Bar ── */}
-      <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search customer, slip, vehicle, product..."
-              className="pl-9"
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
-            />
+      {!isEmbedded && (
+        <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+            {/* Search */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search customer, slip, vehicle, product..."
+                className="pl-9"
+                value={searchTerm}
+                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(0); }}
+              />
+            </div>
+
+            {/* Date From */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">From</label>
+              <input
+                type="date"
+                value={fromDateFilter}
+                onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
+            {/* Date To */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground font-medium">To</label>
+              <input
+                type="date"
+                value={toDateFilter}
+                onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
+            {/* Category Filter */}
+            <div className="w-36">
+              <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setCurrentPage(0); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Categories</SelectItem>
+                  <SelectItem value="Fuel">Fuel</SelectItem>
+                  <SelectItem value="Oil & Lubes">Oil & Lubes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* MPD Filter */}
+            {!isEmbedded && (
+              <div className="w-36">
+                <Select value={mpdFilter} onValueChange={v => { setMpdFilter(v); setCurrentPage(0); }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="MPD" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All MPDs</SelectItem>
+                    {mpds.map(m => (
+                      <SelectItem key={m.id} value={m.mpdName}>
+                        {m.mpdName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
-          {/* Date From */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">From</label>
-            <input
-              type="date"
-              value={fromDateFilter}
-              onChange={e => { setFromDateFilter(e.target.value); setCurrentPage(0); }}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Date To */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground font-medium">To</label>
-            <input
-              type="date"
-              value={toDateFilter}
-              onChange={e => { setToDateFilter(e.target.value); setCurrentPage(0); }}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Category Filter */}
-          <div className="w-36">
-            <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setCurrentPage(0); }}>
-              <SelectTrigger>
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Categories</SelectItem>
-                <SelectItem value="Fuel">Fuel</SelectItem>
-                <SelectItem value="Oil & Lubes">Oil & Lubes</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* MPD Filter */}
-          <div className="w-36">
-            <Select value={mpdFilter} onValueChange={v => { setMpdFilter(v); setCurrentPage(0); }}>
-              <SelectTrigger>
-                <SelectValue placeholder="MPD" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All MPDs</SelectItem>
-                {mpds.map(m => (
-                  <SelectItem key={m.id} value={m.mpdName}>
-                    {m.mpdName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center gap-3">
+            {/* Export Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Download className="w-4 h-4" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
+                  Export All Matching
+                </div>
+                <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
+                  <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export All to PDF
+                </DropdownMenuItem>
+                <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
+                  Export Selected ({selectedIds.size})
+                </div>
+                <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
+                  <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
+                  Export Selected to PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          {/* Export Dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Download className="w-4 h-4" />
-                Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider">
-                Export All Matching
-              </div>
-              <DropdownMenuItem onClick={() => handleExportAll('csv')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('excel')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to Excel
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportAll('pdf')} className="cursor-pointer text-xs">
-                <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export All to PDF
-              </DropdownMenuItem>
-              <div className="px-2 py-1.5 text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider border-t border-border mt-1">
-                Export Selected ({selectedIds.size})
-              </div>
-              <DropdownMenuItem onClick={() => handleExportSelected('csv')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('excel')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to Excel
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportSelected('pdf')} className="cursor-pointer text-xs" disabled={selectedIds.size === 0}>
-                <CheckSquare className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export Selected to PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      )}
 
       {/* ── Main Table ── */}
       <div className="bg-card rounded-lg border border-border overflow-hidden">
@@ -1122,9 +1339,9 @@ export function CreditSales() {
                       <Receipt className="w-3.5 h-3.5 text-muted-foreground" /> Slip No<SortIcon field="slipNo" />
                     </div>
                   </th>
-                  <th className="text-left p-4 font-medium">
+                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('quantity')}>
                     <div className="flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5 text-muted-foreground" /> Vehicle No.
+                      <Droplet className="w-3.5 h-3.5 text-muted-foreground" /> Quantity (L)<SortIcon field="quantity" />
                     </div>
                   </th>
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('productName')}>
@@ -1170,10 +1387,8 @@ export function CreditSales() {
                       </div>
                     </td>
                     <td className="p-4 font-mono text-sm text-foreground">{record.slipNo}</td>
-                    <td className="p-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground font-mono">
-                        {record.vehicleNo}
-                      </span>
+                    <td className="p-4 font-mono text-sm font-semibold text-blue-600">
+                      {record.quantity ? `${record.quantity.toFixed(2)} ${record.productUnit || 'L'}` : '0.00 L'}
                     </td>
                     <td className="p-4">
                       <div>
@@ -1222,13 +1437,13 @@ export function CreditSales() {
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
                 <tr>
-                  <td colSpan={6} className="p-4 text-left font-semibold">
+                  <td colSpan={7} className="p-4 text-left font-semibold">
                     Page Total ({paginated.length} records)
                   </td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">
                     {formatCurrency(paginated.reduce((s, r) => s + r.totalAmount, 0))}
                   </td>
-                  <td colSpan={2} className="p-4 text-muted-foreground text-left">
+                  <td colSpan={1} className="p-4 text-muted-foreground text-left">
                     Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
                   </td>
                 </tr>
@@ -1275,7 +1490,7 @@ export function CreditSales() {
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW MODAL
       ════════════════════════════════════════════════════ */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -1752,7 +1967,7 @@ export function CreditSales() {
                         if (val === 'NONE') return;
                         handleMpdChange(val);
                       }}
-                      disabled={isView}
+                      disabled={isView || (isEmbedded && !!resolvedMpdName)}
                     >
                       <SelectTrigger id="cs-mpd" className="h-9 text-xs" tabIndex={8}>
                         <SelectValue placeholder="-- Select MPD --" />
@@ -1829,7 +2044,7 @@ export function CreditSales() {
                 <Button
                   type="submit"
                   size="sm"
-                  className="gap-2 min-w-[120px]"
+                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2 min-w-[120px]"
                   disabled={saving}
                 >
                   {saving
