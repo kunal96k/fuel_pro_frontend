@@ -56,12 +56,20 @@ export interface CashCollectionProps {
   isEmbedded?: boolean;
   prefilledMpdName?: string;
   onCloseModal?: () => void;
+  onTotalChange?: (total: number) => void;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
 }
 
 export function CashCollection({
   isEmbedded = false,
   prefilledMpdName = '',
-  onCloseModal
+  onCloseModal,
+  onTotalChange,
+  selectedDate,
+  selectedShift,
+  scopeMode = 'overall'
 }: CashCollectionProps = {}) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [mpds, setMpds] = useState<any[]>([]);
@@ -111,51 +119,48 @@ export function CashCollection({
     shift: '',
     shiftId: '',
     employeeId: '',
-    mpdId: '',
-    depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-    status: 'Pending' as 'Pending' | 'Completed' | 'Verified',
-    notes500: 0,
-    notes200: 0,
-    notes100: 0,
-    notes50: 0,
-    notes20: 0,
-    notes10: 0,
-    coins: 0.0
+    employeeName: '',
+    dutyNozzle: '',
+    shiftTiming: '',
+    depositAmount: '',
+    notes: ''
   });
 
   // Calculate form totals
   const calculateFormTotal = () => {
     return (
-      (formRecord.notes500 * 500) +
-      (formRecord.notes200 * 200) +
-      (formRecord.notes100 * 100) +
-      (formRecord.notes50 * 50) +
-      (formRecord.notes20 * 20) +
-      (formRecord.notes10 * 10) +
-      (Number(formRecord.coins) || 0)
+      (Number((formRecord as any).notes500 || 0) * 500) +
+      (Number((formRecord as any).notes200 || 0) * 200) +
+      (Number((formRecord as any).notes100 || 0) * 100) +
+      (Number((formRecord as any).notes50 || 0) * 50) +
+      (Number((formRecord as any).notes20 || 0) * 20) +
+      (Number((formRecord as any).notes10 || 0) * 10) +
+      (Number((formRecord as any).coins || 0) || 0)
     );
   };
 
-  // Load active master configurations (Employees + MPDs + Real Shift Master)
+  // Load master data once on mount
   useEffect(() => {
-    const loadMasters = async () => {
+    async function loadMaster() {
       setLoadingMaster(true);
       try {
-        const [empRes, mpdRes, shiftRes] = await Promise.all([
+        const [empData, mpdData, shiftData, dutyData] = await Promise.all([
           fetchEmployees({ size: 1000, status: 'Active' }),
           fetchMpdsAll(),
-          fetchShiftsAll()
+          fetchShiftsAll(),
+          fetchEmployeeAssignments()
         ]);
-        setEmployees(empRes.content);
-        setMpds(mpdRes);
-        setShifts(shiftRes);
-      } catch {
-        toast.error('Failed to load employee, MPD, or shift master lists');
+        setEmployees(empData.content);
+        setMpds(mpdData);
+        setShifts(shiftData);
+        setDutyAssignments(dutyData);
+      } catch (err: any) {
+        console.error('Failed to load master data for CashCollection:', err);
       } finally {
         setLoadingMaster(false);
       }
-    };
-    loadMasters();
+    }
+    loadMaster();
   }, []);
 
   // Fetch duty assignments for current date & shift whenever form date or shiftId changes
@@ -199,24 +204,47 @@ export function CashCollection({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      let activeFromDate = fromDateFilter;
+      let activeToDate = toDateFilter;
+      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+        if (!fromDateFilter && !toDateFilter && selectedDate) {
+          activeFromDate = selectedDate;
+          activeToDate = selectedDate;
+        }
+      }
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      }
+
       const fetchParams: any = {
         page: isEmbedded ? 0 : currentPage,
         size: isEmbedded ? 10000 : pageSize,
         search: searchTerm,
         status: statusFilter,
         shift: shiftFilter,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined,
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined,
         sortBy,
         sortDir
       };
 
       const recordsRes = await fetchCashCollections(fetchParams);
 
+      const isMpdMatch = (rec?: string, tgt?: string) => {
+        if (!rec || !tgt) return false;
+        const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
+        const rNum = rec.match(/\d+/)?.[0];
+        const tNum = tgt.match(/\d+/)?.[0];
+        return Boolean(rNum && tNum && rNum === tNum);
+      };
+
       let filteredContent = recordsRes.content;
       if (isEmbedded && resolvedMpdName) {
         filteredContent = recordsRes.content.filter(
-          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+          r => isMpdMatch(r.mpdName, resolvedMpdName)
         );
       }
 
@@ -240,8 +268,8 @@ export function CashCollection({
         search: searchTerm,
         status: statusFilter,
         shift: shiftFilter,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined
       });
 
       // Calculate stats based on filtered results if embedded
@@ -252,13 +280,13 @@ export function CashCollection({
           search: searchTerm,
           status: statusFilter,
           shift: shiftFilter,
-          fromDate: fromDateFilter || undefined,
-          toDate: toDateFilter || undefined,
+          fromDate: activeFromDate || undefined,
+          toDate: activeToDate || undefined,
           sortBy,
           sortDir
         });
         const allFiltered = allRecordsRes.content.filter(
-          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+          r => isMpdMatch(r.mpdName, resolvedMpdName)
         );
         const totalAmount = allFiltered.reduce((sum, r) => sum + r.depositAmount, 0);
         const verifiedCount = allFiltered.filter(r => r.status === 'Verified').length;
@@ -277,12 +305,19 @@ export function CashCollection({
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName]);
+  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate]);
 
   // Trigger reload on filter/page/sort changes
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (onTotalChange) {
+      const sum = isEmbedded && stats.totalAmount !== undefined ? stats.totalAmount : records.reduce((acc, curr) => acc + (curr.depositAmount || 0), 0);
+      onTotalChange(sum);
+    }
+  }, [records, stats, isEmbedded, onTotalChange]);
 
   useEffect(() => {
     if (isEmbedded && resolvedMpdName) {

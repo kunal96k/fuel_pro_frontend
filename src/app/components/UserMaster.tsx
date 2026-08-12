@@ -297,6 +297,16 @@ export function UserMaster() {
       return;
     }
 
+    if (formData.name.trim().length > 50) {
+      toast.warning('Full Name cannot exceed 50 characters');
+      return;
+    }
+
+    if (formData.username.trim().length > 50) {
+      toast.warning('Username cannot exceed 50 characters');
+      return;
+    }
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       toast.warning('Please enter a valid email address');
       return;
@@ -620,22 +630,44 @@ export function UserMaster() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="name">Full Name <span className="text-red-500">*</span></Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="name">Full Name <span className="text-red-500">*</span></Label>
+                  <span className={`text-[10px] font-mono ${formData.name.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                    {formData.name.length}/50 chars
+                  </span>
+                </div>
                 <Input
                   id="name"
                   value={formData.name}
+                  maxLength={50}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter full name"
+                  placeholder="Enter full name (max 50 chars)"
                 />
+                {formData.name.length >= 50 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                    Maximum limit of 50 characters reached.
+                  </p>
+                )}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="username">Username <span className="text-red-500">*</span></Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="username">Username <span className="text-red-500">*</span></Label>
+                  <span className={`text-[10px] font-mono ${formData.username.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                    {formData.username.length}/50 chars
+                  </span>
+                </div>
                 <Input
                   id="username"
                   value={formData.username}
+                  maxLength={50}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  placeholder="Enter username"
+                  placeholder="Enter username (max 50 chars)"
                 />
+                {formData.username.length >= 50 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                    Maximum limit of 50 characters reached.
+                  </p>
+                )}
               </div>
             </div>
 

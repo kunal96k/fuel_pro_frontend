@@ -13,6 +13,7 @@ interface Nozzle {
   nozzleName: string;
   fuelType: string;
   connectedTank: string;
+  initialOpeningReading?: number;
 }
 
 interface MPD {
@@ -72,10 +73,10 @@ export function MPDMaster() {
       numberOfNozzles: '4',
     });
     setNozzleData([
-      { id: '1', nozzleName: 'Nozzle 1', fuelType: '', connectedTank: '' },
-      { id: '2', nozzleName: 'Nozzle 2', fuelType: '', connectedTank: '' },
-      { id: '3', nozzleName: 'Nozzle 3', fuelType: '', connectedTank: '' },
-      { id: '4', nozzleName: 'Nozzle 4', fuelType: '', connectedTank: '' },
+      { id: '1', nozzleName: 'Nozzle 1', fuelType: '', connectedTank: '', initialOpeningReading: 0 },
+      { id: '2', nozzleName: 'Nozzle 2', fuelType: '', connectedTank: '', initialOpeningReading: 0 },
+      { id: '3', nozzleName: 'Nozzle 3', fuelType: '', connectedTank: '', initialOpeningReading: 0 },
+      { id: '4', nozzleName: 'Nozzle 4', fuelType: '', connectedTank: '', initialOpeningReading: 0 },
     ]);
     setEditingMPD(null);
     setShowAddDialog(true);
@@ -99,6 +100,7 @@ export function MPDMaster() {
           nozzleName: `Nozzle ${i + 1}`,
           fuelType: '',
           connectedTank: '',
+          initialOpeningReading: 0,
         });
       }
     }
@@ -135,13 +137,14 @@ export function MPDMaster() {
           nozzleName: `Nozzle ${i + 1}`,
           fuelType: '',
           connectedTank: '',
+          initialOpeningReading: 0,
         });
       }
     }
     setNozzleData(newNozzles);
   };
 
-  const updateNozzle = (index: number, field: keyof Nozzle, value: string) => {
+  const updateNozzle = (index: number, field: keyof Nozzle, value: any) => {
     const updated = [...nozzleData];
     if (field === 'fuelType') {
       const currentTankName = updated[index].connectedTank;
@@ -152,6 +155,9 @@ export function MPDMaster() {
         fuelType: value,
         connectedTank: matches ? currentTankName : ''
       };
+    } else if (field === 'initialOpeningReading') {
+      const parsed = parseFloat(value);
+      updated[index] = { ...updated[index], initialOpeningReading: isNaN(parsed) ? undefined : parsed };
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
@@ -159,8 +165,13 @@ export function MPDMaster() {
   };
 
   const handleSave = async () => {
-    if (!formData.mpdName) {
-      toast.error('Please enter MPD name');
+    if (!formData.mpdName || !formData.numberOfNozzles) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (formData.mpdName.trim().length > 50) {
+      toast.error('MPD name cannot exceed 50 characters!');
       return;
     }
 
@@ -187,7 +198,8 @@ export function MPDMaster() {
           nozzles: nozzleData.map(n => ({
             nozzleName: n.nozzleName,
             fuelType: n.fuelType,
-            connectedTank: n.connectedTank
+            connectedTank: n.connectedTank,
+            initialOpeningReading: n.initialOpeningReading ?? 0
           })) as any
         });
         toast.success('MPD updated successfully!');
@@ -198,7 +210,8 @@ export function MPDMaster() {
           nozzles: nozzleData.map(n => ({
             nozzleName: n.nozzleName,
             fuelType: n.fuelType,
-            connectedTank: n.connectedTank
+            connectedTank: n.connectedTank,
+            initialOpeningReading: n.initialOpeningReading ?? 0
           })) as any
         });
         toast.success('MPD created successfully!');
@@ -215,7 +228,7 @@ export function MPDMaster() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="mb-2">MPD Master</h1>
-          <p className="text-muted-foreground">Manage Multi Product Dispensers, nozzles, and tank connections</p>
+          <p className="text-muted-foreground">Manage Multi Product Dispensers, nozzles, initial opening meter readings, and tank connections</p>
         </div>
         <Button onClick={handleAdd} className="gap-2">
           <Plus className="w-4 h-4" />
@@ -271,6 +284,7 @@ export function MPDMaster() {
                         <th className="text-left p-4 font-medium">Nozzle</th>
                         <th className="text-left p-4 font-medium">Fuel Type</th>
                         <th className="text-left p-4 font-medium">Connected Tank</th>
+                        <th className="text-right p-4 font-medium">Initial Opening Reading (L)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -286,6 +300,9 @@ export function MPDMaster() {
                             </span>
                           </td>
                           <td className="p-4 text-muted-foreground">{nozzle.connectedTank}</td>
+                          <td className="p-4 text-right font-mono font-medium">
+                            {nozzle.initialOpeningReading != null ? nozzle.initialOpeningReading.toFixed(2) : '0.00'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -304,22 +321,33 @@ export function MPDMaster() {
       </div>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingMPD ? 'Edit MPD' : 'Add New MPD'}</DialogTitle>
             <DialogDescription>
-              {editingMPD ? 'Update MPD configuration' : 'Configure a new Multi Product Dispenser'}
+              {editingMPD ? 'Update MPD configuration and nozzle initial opening readings' : 'Configure a new Multi Product Dispenser and initial meter readings'}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="mpdName">MPD Name <span className="text-red-500">*</span></Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="mpdName">MPD Name <span className="text-red-500">*</span></Label>
+                <span className={`text-[11px] font-mono ${formData.mpdName.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                  {formData.mpdName.length}/50 chars
+                </span>
+              </div>
               <Input
                 id="mpdName"
                 value={formData.mpdName}
+                maxLength={50}
                 onChange={(e) => setFormData({ ...formData, mpdName: e.target.value })}
-                placeholder="Enter MPD name"
+                placeholder="Enter MPD name (max 50 chars)"
               />
+              {formData.mpdName.length >= 50 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  Maximum limit of 50 characters reached.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="numberOfNozzles">Number of Nozzles <span className="text-red-500">*</span></Label>
@@ -344,12 +372,12 @@ export function MPDMaster() {
             </div>
 
             <div className="border-t border-border pt-4 mt-2">
-              <h4 className="font-medium mb-4">Nozzle Configuration</h4>
+              <h4 className="font-medium mb-4">Nozzle Configuration &amp; Starting Meter Readings</h4>
               <div className="space-y-4">
                 {nozzleData.map((nozzle, index) => (
                   <div key={nozzle.id} className="grid gap-3 p-4 bg-muted/30 rounded-lg">
                     <div className="font-medium text-sm">{nozzle.nozzleName}</div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="grid gap-2">
                         <Label htmlFor={`fuel-${index}`} className="text-xs">Fuel Type <span className="text-red-500">*</span></Label>
                         <Select
@@ -374,6 +402,7 @@ export function MPDMaster() {
                           </SelectContent>
                         </Select>
                       </div>
+
                       <div className="grid gap-2">
                         <Label htmlFor={`tank-${index}`} className="text-xs">Connected Tank <span className="text-red-500">*</span></Label>
                         <Select
@@ -409,6 +438,18 @@ export function MPDMaster() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor={`opening-${index}`} className="text-xs">Initial Opening Reading (L)</Label>
+                        <Input
+                          id={`opening-${index}`}
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={nozzle.initialOpeningReading ?? ''}
+                          onChange={(e) => updateNozzle(index, 'initialOpeningReading', e.target.value)}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -420,7 +461,7 @@ export function MPDMaster() {
               Cancel
             </Button>
             <Button onClick={handleSave}>
-              {editingMPD ? 'Update' : 'Add MPD'}
+              {editingMPD ? 'Update MPD' : 'Add MPD'}
             </Button>
           </DialogFooter>
         </DialogContent>

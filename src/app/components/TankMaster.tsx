@@ -137,6 +137,11 @@ export function TankMaster() {
       return;
     }
 
+    if (formData.tankName.trim().length > 50) {
+      toast.error('Tank name cannot exceed 50 characters!');
+      return;
+    }
+
     const duplicate = tanks.find(
       t => t.tankName.trim().toLowerCase() === formData.tankName.trim().toLowerCase() &&
         (!editingTank || t.id !== editingTank.id)
@@ -394,13 +399,24 @@ export function TankMaster() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="tankName">Tank Name <span className="text-red-500">*</span></Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="tankName">Tank Name <span className="text-red-500">*</span></Label>
+                <span className={`text-[11px] font-mono ${formData.tankName.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                  {formData.tankName.length}/50 chars
+                </span>
+              </div>
               <Input
                 id="tankName"
                 value={formData.tankName}
+                maxLength={50}
                 onChange={(e) => setFormData({ ...formData, tankName: e.target.value })}
-                placeholder="Enter tank name"
+                placeholder="Enter tank name (max 50 chars)"
               />
+              {formData.tankName.length >= 50 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  Maximum limit of 50 characters reached.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="fuelType">Fuel Type <span className="text-red-500">*</span></Label>

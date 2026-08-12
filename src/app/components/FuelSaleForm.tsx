@@ -2,13 +2,33 @@ import React from 'react';
 import { CreditSales } from './CreditSales';
 import { OwnUsage } from './OwnUsage';
 import { CashCollection } from './CashCollection';
-import { 
-  fetchMpdsAll, 
-  MPD, 
-  MeterReading, 
-  saveMeterReadingsBatchApi, 
-  fetchLatestMeterReading, 
-  fetchMeterReadingsHistory 
+import {
+  fetchMpdsAll,
+  MPD,
+  MeterReading,
+  saveMeterReadingsBatchApi,
+  fetchLatestMeterReading,
+  fetchExistingMeterReading,
+  fetchMeterReadingsHistory,
+  fetchShiftsAll,
+  ShiftMaster,
+  fetchProducts,
+  Product,
+  formatDateToDMY,
+  fetchSettlementsByMpd,
+  createSettlementApi,
+  updateSettlementApi,
+  deleteSettlementApi,
+  ShiftSettlementRecord,
+  fetchEmployees,
+  Employee,
+  fetchLatestOrDateRates,
+  saveMpdReconciliationApi,
+  fetchExistingMpdReconciliation,
+  MpdReconciliationRecord,
+  MpdReconciliationItem,
+  fetchEmployeeAssignments,
+  EmployeeAssignment
 } from '../services/api';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Input } from './ui/input';
@@ -18,31 +38,85 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
-import { 
-  Plus, Eye, Edit, Trash2, Check, ChevronDown, ChevronLeft, ChevronRight, 
-  CreditCard, User, Clock, Package, IndianRupee, Droplet, Car, SlidersHorizontal, 
-  Layers, Calendar, Fuel, Save, Loader2, History, Download, FileText, Search, RefreshCw 
+import {
+  Plus, Eye, Edit, Trash2, Check, ChevronDown, ChevronLeft, ChevronRight,
+  CreditCard, User, Clock, Package, IndianRupee, Droplet, Car, SlidersHorizontal,
+  Layers, Calendar, Fuel, Save, Loader2, History, Download, FileText, Search, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Textarea } from './ui/textarea';
 
+// FuelSaleForm - Shift Sales & Meter Reading Management
 const subTabs = ['Meter Reading', 'Credit Sales', 'Own Use', 'Settlements', 'Employee Deposits', 'Summary'];
 
-const getFuelRate = (fuelType: string) => {
-  const norm = fuelType?.toLowerCase() || '';
+const getFuelRate = (fuelType: string, rateMaster?: Record<string, number>) => {
+  if (!fuelType) return 90.00;
+  if (rateMaster) {
+    if (rateMaster[fuelType] !== undefined && rateMaster[fuelType] > 0) {
+      return rateMaster[fuelType];
+    }
+    const lowerKey = fuelType.toLowerCase();
+    if (rateMaster[lowerKey] !== undefined && rateMaster[lowerKey] > 0) {
+      return rateMaster[lowerKey];
+    }
+  }
+  const norm = fuelType.toLowerCase();
   if (norm.includes('diesel')) return 89.75;
-  if (norm.includes('petrol') || norm.includes('power') || norm.includes('speed') || norm.includes('gasoline')) return 102.50;
+  if (norm.includes('petrol') || norm.includes('power') || norm.includes('speed') || norm.includes('ms') || norm.includes('gasoline')) return 102.50;
   return 90.00;
 };
 
 const getDefaultOpeningReading = (nozzleName: string, fuelType: string, index: number) => {
-  if (index === 0) return fuelType?.toLowerCase().includes('diesel') ? 18750.25 : 12500.50;
-  if (index === 1) return fuelType?.toLowerCase().includes('diesel') ? 22300.00 : 18750.25;
-  if (index === 2) return fuelType?.toLowerCase().includes('diesel') ? 25000.00 : 9800.75;
-  if (index === 3) return fuelType?.toLowerCase().includes('diesel') ? 28000.00 : 22300.00;
-  return fuelType?.toLowerCase().includes('diesel') ? 30000.00 + index * 1000 : 15000.00 + index * 1000;
+  return 0.00;
+};
+
+const formatIndianCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
+};
+
+function getActiveShiftNameFromMaster(shifts: ShiftMaster[], now: Date = new Date()): string {
+  if (!shifts || shifts.length === 0) return 'Shift 1';
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const parseTimeToMinutes = (timeStr?: string): number => {
+    if (!timeStr) return 0;
+    const parts = timeStr.trim().split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return h * 60 + m;
+  };
+
+  for (const shift of shifts) {
+    if (!shift.startTime || !shift.endTime) continue;
+    const startMin = parseTimeToMinutes(shift.startTime);
+    const endMin = parseTimeToMinutes(shift.endTime);
+
+    if (startMin <= endMin) {
+      if (currentMinutes >= startMin && currentMinutes < endMin) {
+        return shift.shiftName;
+      }
+    } else {
+      if (currentMinutes >= startMin || currentMinutes < endMin) {
+        return shift.shiftName;
+      }
+    }
+  }
+
+  return shifts[0]?.shiftName || 'Shift 1';
+}
+
+const fuelBadgeStyle = (fuel?: string) => {
+  const norm = (fuel || '').toLowerCase();
+  if (norm.includes('diesel')) return 'bg-amber-500/10 text-amber-600 border-amber-500/30 font-medium';
+  if (norm.includes('lpg')) return 'bg-sky-500/10 text-sky-600 border-sky-500/30 font-medium';
+  return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 font-medium';
 };
 
 function MeterReadingHistoryModal({
@@ -66,15 +140,18 @@ function MeterReadingHistoryModal({
   const [page, setPage] = React.useState(0);
   const [totalPages, setTotalPages] = React.useState(1);
   const [totalElements, setTotalElements] = React.useState(0);
+  const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
+  const [fuelProducts, setFuelProducts] = React.useState<Product[]>([]);
 
   const loadHistory = React.useCallback(async () => {
     try {
       setLoading(true);
+      const cleanMpdId = mpdId ? String(mpdId).replaceAll(/\D+/g, '') : undefined;
       const res = await fetchMeterReadingsHistory({
         page,
         size: 15,
         search: searchTerm || undefined,
-        mpdId: mpdId || undefined,
+        mpdId: cleanMpdId || undefined,
         shiftName: shiftFilter !== 'ALL' ? shiftFilter : undefined,
         fuelType: fuelTypeFilter !== 'ALL' ? fuelTypeFilter : undefined,
         fromDate: fromDate || undefined,
@@ -96,13 +173,20 @@ function MeterReadingHistoryModal({
   React.useEffect(() => {
     if (open) {
       loadHistory();
+      fetchShiftsAll().then(res => {
+        if (res && res.length > 0) setMasterShifts(res);
+      }).catch(err => console.error('Failed to load master shifts:', err));
+
+      fetchProducts({ size: 1000, category: 'Fuel' }).then(res => {
+        if (res && res.content) setFuelProducts(res.content);
+      }).catch(err => console.error('Failed to load fuel products:', err));
     }
   }, [open, loadHistory]);
 
   const downloadCSV = (data: MeterReading[]) => {
     if (!data.length) { toast.warning('No records to export'); return; }
     const headers = ['ID', 'Date', 'Shift', 'MPD', 'Nozzle', 'Fuel Type', 'Opening Reading', 'Closing Reading', 'Testing (L)', 'Sales (L)', 'Rate (₹)', 'Total Amount (₹)'];
-    const rows = data.map(r => [
+    const rows = data.map((r: any) => [
       r.id || '',
       r.date || '',
       `"${r.shiftName || ''}"`,
@@ -112,246 +196,523 @@ function MeterReadingHistoryModal({
       r.openingReading ?? 0,
       r.closingReading ?? 0,
       r.testingQuantity ?? 0,
-      r.salesLiters ?? 0,
-      r.ratePerLitre ?? 0,
-      r.totalAmount ?? 0
+      r.salesLiters ?? r.salesQuantity ?? 0,
+      r.ratePerLitre ?? r.rate ?? 0,
+      r.totalAmount ?? r.netAmount ?? ((r.salesLiters || r.salesQuantity || 0) * (r.ratePerLitre || r.rate || 0))
     ]);
-    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `meter_readings_history_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.setAttribute('href', url);
+    link.setAttribute('download', `meter_readings_audit_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Exported meter reading logs to CSV!');
+    URL.revokeObjectURL(url);
+    toast.success('Exported CSV logs successfully!');
   };
 
   const downloadXLS = (data: MeterReading[]) => {
     if (!data.length) { toast.warning('No records to export'); return; }
-    let html = `<table><thead><tr><th>S.No</th><th>Date</th><th>Shift</th><th>MPD</th><th>Nozzle</th><th>Fuel Type</th><th>Opening</th><th>Closing</th><th>Testing</th><th>Sales (L)</th><th>Rate (₹)</th><th>Total (₹)</th></tr></thead><tbody>`;
-    data.forEach((r, i) => {
-      html += `<tr><td>${i+1}</td><td>${r.date}</td><td>${r.shiftName}</td><td>${r.mpdName}</td><td>${r.nozzleName}</td><td>${r.fuelType}</td><td>${r.openingReading}</td><td>${r.closingReading}</td><td>${r.testingQuantity || 0}</td><td>${r.salesLiters || 0}</td><td>${r.ratePerLitre || 0}</td><td>${r.totalAmount || 0}</td></tr>`;
-    });
-    html += `</tbody></table>`;
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const headers = ['ID\tDate\tShift\tMPD\tNozzle\tFuel Type\tOpening Reading\tClosing Reading\tTesting (L)\tSales (L)\tRate (₹)\tTotal Amount (₹)'];
+    const rows = data.map((r: any) =>
+      `${r.id || ''}\t${r.date || ''}\t${r.shiftName || ''}\t${r.mpdName || ''}\t${r.nozzleName || ''}\t${r.fuelType || ''}\t${r.openingReading ?? 0}\t${r.closingReading ?? 0}\t${r.testingQuantity ?? 0}\t${r.salesLiters ?? r.salesQuantity ?? 0}\t${r.ratePerLitre ?? r.rate ?? 0}\t${r.totalAmount ?? r.netAmount ?? ((r.salesLiters || r.salesQuantity || 0) * (r.ratePerLitre || r.rate || 0))}`
+    );
+    const xlsContent = '\uFEFF' + [headers.join('\n'), ...rows].join('\n');
+    const blob = new Blob([xlsContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `meter_readings_history_${new Date().toISOString().slice(0, 10)}.xls`;
+    link.setAttribute('href', url);
+    link.setAttribute('download', `meter_readings_audit_${new Date().toISOString().slice(0, 10)}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Exported meter reading logs to Excel!');
+    URL.revokeObjectURL(url);
+    toast.success('Exported Excel report successfully!');
   };
 
   const downloadPDF = (data: MeterReading[]) => {
-    if (!data.length) { toast.warning('No records to export'); return; }
-    const pw = window.open('', '_blank');
-    if (!pw) { toast.error('Popup blocked! Allow popups to generate PDFs.'); return; }
-    let rowsHtml = '';
-    data.forEach((r, i) => {
-      rowsHtml += `<tr>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${i + 1}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.date}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.shiftName}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.mpdName || ''}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;font-weight:500">${r.nozzleName || ''}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.fuelType || ''}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.openingReading}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.closingReading}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.testingQuantity || 0}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;font-weight:bold;color:#2563eb">${(r.salesLiters || 0).toFixed(2)} L</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">₹${(r.ratePerLitre || 0).toFixed(2)}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;font-weight:bold;color:#16a34a">₹${(r.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-      </tr>`;
-    });
-    pw.document.write(`<html><head><title>Meter Readings Log Report</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;padding:24px;color:#1e293b}.header{display:flex;justify-content:space-between;border-bottom:2px solid #2563eb;padding-bottom:12px;margin-bottom:24px}.title{font-size:20px;font-weight:700;color:#1e40af;margin:0}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f1f5f9;padding:8px;border:1px solid #cbd5e1;font-weight:600;text-align:left}@media print{button{display:none}}</style></head><body><div class="header"><div><h1 class="title">Meter Readings Log Report</h1><p style="margin:4px 0 0;font-size:12px;color:#64748b">Fuel Station Operations History Log</p></div><div><p style="font-size:12px;margin:0">Total Records: ${data.length}</p></div></div><table><thead><tr><th>S.No</th><th>Date</th><th>Shift</th><th>MPD</th><th>Nozzle</th><th>Fuel Type</th><th>Opening</th><th>Closing</th><th>Testing</th><th>Sales (L)</th><th>Rate</th><th>Total Sales</th></tr></thead><tbody>${rowsHtml}</tbody></table><script>window.onload=function(){window.print();setTimeout(function(){window.close();},500);}</script></body></html>`);
-    pw.document.close();
+    if (!data.length) { toast.warning('No records to print'); return; }
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { toast.error('Pop-up blocked. Please allow pop-ups.'); return; }
+    const html = `
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Meter Readings Audit Log Report</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 20px; color: #1e293b; }
+            h2 { margin-bottom: 4px; }
+            p { font-size: 12px; color: #64748b; margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+            th { background-color: #f1f5f9; font-weight: 600; }
+            .num { text-align: right; font-family: monospace; }
+            .badge { display: inline-block; padding: 2px 6px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: #e0f2fe; color: #0369a1; }
+          </style>
+        </head>
+        <body>
+          <h2>Meter Readings Shift Audit Logs</h2>
+          <p>Generated on ${new Date().toLocaleString()} ${mpdName ? `| Filtered for: ${mpdName}` : ''}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Shift</th>
+                <th>MPD / Nozzle</th>
+                <th>Fuel Type</th>
+                <th class="num">Opening</th>
+                <th class="num">Closing</th>
+                <th class="num">Testing (L)</th>
+                <th class="num">Net Sales (L)</th>
+                <th class="num">Rate (₹)</th>
+                <th class="num">Total Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map((r: any) => `
+                <tr>
+                  <td>${r.date || '-'}</td>
+                  <td>${r.shiftName || '-'}</td>
+                  <td>${r.mpdName || ''} - ${r.nozzleName || ''}</td>
+                  <td><span class="badge">${r.fuelType || '-'}</span></td>
+                  <td class="num">${r.openingReading?.toFixed(2) ?? '0.00'}</td>
+                  <td class="num">${r.closingReading?.toFixed(2) ?? '0.00'}</td>
+                  <td class="num">${(r.testingQuantity || 0).toFixed(2)}</td>
+                  <td class="num"><b>${(r.salesLiters ?? r.salesQuantity ?? 0).toFixed(2)} L</b></td>
+                  <td class="num">₹${(r.ratePerLitre ?? r.rate ?? 0).toFixed(2)}</td>
+                  <td class="num"><b>₹${(r.totalAmount ?? r.netAmount ?? ((r.salesLiters || r.salesQuantity || 0) * (r.ratePerLitre || r.rate || 0))).toFixed(2)}</b></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 250);
+  };
+
+  const totalVolume = React.useMemo(() => {
+    return readings.reduce((acc, curr: any) => acc + (curr.salesLiters ?? curr.salesQuantity ?? 0), 0);
+  }, [readings]);
+
+  const totalRevenue = React.useMemo(() => {
+    return readings.reduce((acc, curr: any) => acc + (curr.totalAmount ?? curr.netAmount ?? ((curr.salesLiters || curr.salesQuantity || 0) * (curr.ratePerLitre || curr.rate || 0))), 0);
+  }, [readings]);
+
+  const hasActiveFilters = Boolean(searchTerm || shiftFilter !== 'ALL' || fuelTypeFilter !== 'ALL' || fromDate || toDate);
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setShiftFilter('ALL');
+    setFuelTypeFilter('ALL');
+    setFromDate('');
+    setToDate('');
+    setPage(0);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
-          <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                <History className="w-5 h-5 text-purple-600" />
-                Meter Readings History &amp; Audit Logs {mpdName ? `(${mpdName})` : ''}
-              </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                Audit history of all shift meter readings, opening/closing values, testing deductions, and total sales
-              </DialogDescription>
+      <DialogContent
+        className="flex flex-col overflow-hidden p-0 border shadow-2xl rounded-xl"
+        style={{ maxWidth: '95vw', width: '95vw', height: '92vh', maxHeight: '92vh' }}
+      >
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 pr-12">
+          <div className="flex items-center justify-between gap-4">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <History className="w-5 h-5 text-primary" />
+              Meter Readings History &amp; Audit Logs
+              {mpdName && (
+                <Badge variant="outline" className="bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-300 font-semibold text-xs ml-2">
+                  {mpdName}
+                </Badge>
+              )}
+            </DialogTitle>
+
+            <div className="hidden sm:flex items-center gap-4 bg-background/80 backdrop-blur px-3.5 py-1.5 rounded-lg border text-xs shadow-xs mr-8">
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Total Logs:</span>
+                <span className="font-bold text-foreground">{totalElements}</span>
+              </div>
+              <div className="h-3 w-px bg-border" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Volume:</span>
+                <span className="font-bold text-blue-600 dark:text-blue-400">{totalVolume.toFixed(2)} L</span>
+              </div>
+              <div className="h-3 w-px bg-border" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Revenue:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                  ₹{totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
           </div>
         </DialogHeader>
 
-        {/* Filter Controls */}
-        <div className="p-4 border-b bg-muted/20 space-y-3 shrink-0">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Search</Label>
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                <Input 
-                  placeholder="MPD / Nozzle..." 
-                  className="pl-8 h-8 text-xs" 
-                  value={searchTerm} 
-                  onChange={e => { setSearchTerm(e.target.value); setPage(0); }} 
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Shift</Label>
-              <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setPage(0); }}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="All Shifts" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Shifts</SelectItem>
-                  <SelectItem value="Shift 1 (Morning)">Shift 1 (Morning)</SelectItem>
-                  <SelectItem value="Shift 2 (Afternoon)">Shift 2 (Afternoon)</SelectItem>
-                  <SelectItem value="Shift 3 (Night)">Shift 3 (Night)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Fuel Type</Label>
-              <Select value={fuelTypeFilter} onValueChange={v => { setFuelTypeFilter(v); setPage(0); }}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="All Fuels" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Fuel Types</SelectItem>
-                  <SelectItem value="Petrol">Petrol</SelectItem>
-                  <SelectItem value="Diesel">Diesel</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">From Date</Label>
-              <Input type="date" className="h-8 text-xs" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(0); }} />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">To Date</Label>
-              <Input type="date" className="h-8 text-xs" value={toDate} onChange={e => { setToDate(e.target.value); setPage(0); }} />
-            </div>
+        {/* Inline Filter Bar matching Duty Records modal */}
+        <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3 shrink-0">
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+            <Input
+              placeholder="Search Nozzle or MPD..."
+              className="pl-8 h-8 text-xs bg-background"
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-2 text-muted-foreground hover:text-foreground text-xs font-bold"
+              >
+                ×
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => downloadCSV(readings)}>
-                <FileText className="w-3.5 h-3.5 text-green-600" /> CSV
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => { setFromDate(e.target.value); setPage(0); }}
+              className="w-32 h-8 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={e => { setToDate(e.target.value); setPage(0); }}
+              className="w-32 h-8 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground font-medium">Shift</label>
+            <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setPage(0); }}>
+              <SelectTrigger className="h-8 w-40 text-xs bg-background">
+                <SelectValue placeholder="All Shifts" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Shifts</SelectItem>
+                {masterShifts.map(s => (
+                  <SelectItem key={s.id || s.shiftName} value={s.shiftName}>
+                    {s.shiftName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground font-medium">Fuel Type</label>
+            <Select value={fuelTypeFilter} onValueChange={v => { setFuelTypeFilter(v); setPage(0); }}>
+              <SelectTrigger className="h-8 w-44 text-xs bg-background">
+                <SelectValue placeholder="All Fuel Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Fuel Types</SelectItem>
+                {fuelProducts.map(p => (
+                  <SelectItem key={p.id} value={p.name}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {hasActiveFilters && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={resetFilters}>
+                <RefreshCw className="w-3.5 h-3.5" /> Reset
               </Button>
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => downloadXLS(readings)}>
-                <FileText className="w-3.5 h-3.5 text-blue-600" /> Excel
-              </Button>
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => downloadPDF(readings)}>
-                <Download className="w-3.5 h-3.5 text-red-600" /> PDF Report
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Showing {readings.length} of {totalElements} logs</p>
+            )}
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-green-50 dark:hover:bg-green-950/30" onClick={() => downloadCSV(readings)}>
+              <FileText className="w-3.5 h-3.5 text-green-600" /> CSV
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => downloadXLS(readings)}>
+              <FileText className="w-3.5 h-3.5 text-blue-600" /> Excel
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => downloadPDF(readings)}>
+              <Download className="w-3.5 h-3.5 text-red-600" /> PDF
+            </Button>
           </div>
         </div>
 
-        {/* History Table */}
-        <div className="p-4 overflow-y-auto flex-1">
+        {/* Scrollable Table matching Employee Assignment duty records table */}
+        <div className="flex-1 overflow-auto custom-scrollbar">
           {loading ? (
-            <div className="flex items-center justify-center p-12 text-muted-foreground gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" /> Loading meter reading logs...
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <p className="text-sm font-medium">Loading meter reading logs...</p>
             </div>
           ) : readings.length === 0 ? (
-            <div className="text-center p-12 text-muted-foreground border rounded-lg border-dashed">
-              No shift meter reading records found. Save meter readings from the shift table to populate history logs.
+            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
+              <History className="w-10 h-10 opacity-20" />
+              <p className="text-sm">No meter reading logs found matching your filters.</p>
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full border-collapse text-xs">
-                <thead>
-                  <tr className="bg-muted/50 border-b text-muted-foreground font-semibold">
-                    <th className="p-2.5 text-left">Date</th>
-                    <th className="p-2.5 text-left">Shift</th>
-                    <th className="p-2.5 text-left">MPD</th>
-                    <th className="p-2.5 text-left">Nozzle</th>
-                    <th className="p-2.5 text-left">Fuel Type</th>
-                    <th className="p-2.5 text-right">Opening</th>
-                    <th className="p-2.5 text-right">Closing</th>
-                    <th className="p-2.5 text-right">Testing (L)</th>
-                    <th className="p-2.5 text-right">Sales (L)</th>
-                    <th className="p-2.5 text-right">Rate (₹)</th>
-                    <th className="p-2.5 text-right">Total Amount (₹)</th>
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border z-10">
+                <tr>
+                  <th className="w-14 text-center px-3 py-3 font-medium text-muted-foreground">S.No</th>
+                  <th className="w-28 text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nozzle</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Fuel</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Opening</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Closing</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Testing</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Sales (L)</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Rate</th>
+                  <th className="text-right px-5 py-3 font-medium text-muted-foreground">Total Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {readings.map((r, idx) => (
+                  <tr key={r.id || idx} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
+                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
+                      {page * 15 + idx + 1}
+                    </td>
+                    <td className="w-28 px-4 py-3 font-mono text-xs">{r.date ? formatDateToDMY(r.date) : '-'}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="text-xs">{r.shiftName || '-'}</Badge>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">{r.mpdName || '-'}</td>
+                    <td className="px-4 py-3 font-semibold text-purple-700 dark:text-purple-300 text-xs">{r.nozzleName || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${fuelBadgeStyle(r.fuelType)}`}>
+                        {r.fuelType || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{r.openingReading?.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-foreground">{r.closingReading?.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{(r.testingQuantity || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{((r as any).salesLiters ?? (r as any).salesQuantity ?? 0).toFixed(2)} L</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">₹{((r as any).ratePerLitre ?? (r as any).rate ?? 0).toFixed(2)}</td>
+                    <td className="px-5 py-3 text-right font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      ₹{((r as any).totalAmount ?? (r as any).netAmount ?? (((r as any).salesLiters || 0) * ((r as any).ratePerLitre || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {readings.map((r, idx) => (
-                    <tr key={r.id || idx} className="border-b hover:bg-muted/30">
-                      <td className="p-2.5 font-mono">{r.date}</td>
-                      <td className="p-2.5 font-medium">{r.shiftName}</td>
-                      <td className="p-2.5">{r.mpdName || '-'}</td>
-                      <td className="p-2.5 font-medium">{r.nozzleName || '-'}</td>
-                      <td className="p-2.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          r.fuelType?.toLowerCase().includes('diesel') ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
-                        }`}>
-                          {r.fuelType}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-right font-mono text-muted-foreground">{r.openingReading?.toFixed(2)}</td>
-                      <td className="p-2.5 text-right font-mono font-medium">{r.closingReading?.toFixed(2)}</td>
-                      <td className="p-2.5 text-right font-mono text-muted-foreground">{(r.testingQuantity || 0).toFixed(2)}</td>
-                      <td className="p-2.5 text-right font-mono font-bold text-blue-600">{(r.salesLiters || 0).toFixed(2)} L</td>
-                      <td className="p-2.5 text-right font-mono">₹{(r.ratePerLitre || 0).toFixed(2)}</td>
-                      <td className="p-2.5 text-right font-mono font-bold text-green-700">₹{(r.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
 
-        {/* Pagination Footer */}
-        <div className="px-6 py-3 border-t bg-muted/20 shrink-0 flex items-center justify-between">
-          <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-            <ChevronLeft className="w-4 h-4 mr-1" /> Previous
-          </Button>
-          <span className="text-xs text-muted-foreground">Page {page + 1} of {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-            Next <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
+        {/* Pagination footer matching Employee Assignment duty records modal */}
+        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-muted/20 shrink-0">
+          <span className="text-xs text-muted-foreground">
+            Page {page + 1} of {totalPages} &nbsp;·&nbsp; {totalElements.toLocaleString()} records
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline" size="sm"
+              className="h-7 px-2 gap-1"
+              disabled={page === 0 || loading}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-xs font-mono px-2">{page + 1}</span>
+            <Button
+              variant="outline" size="sm"
+              className="h-7 px-2 gap-1"
+              disabled={page >= totalPages - 1 || loading}
+              onClick={() => setPage(p => p + 1)}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function MeterReadingTable({ 
-  mpdName, 
-  mpd, 
-  onTotalSalesChange 
-}: { 
-  mpdName: string; 
-  mpd?: MPD; 
-  onTotalSalesChange?: (val: number) => void 
+function MeterReadingTable({
+  mpdName,
+  mpd,
+  selectedDate,
+  scopeMode = 'overall',
+  rateMaster,
+  onTotalSalesChange,
+  onFuelSalesSummaryChange,
+  onShiftChange
+}: {
+  mpdName: string;
+  mpd?: MPD;
+  selectedDate?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
+  rateMaster?: Record<string, number>;
+  onTotalSalesChange?: (val: number) => void;
+  onFuelSalesSummaryChange?: (summary: Array<{ product: string; units: number; rate: number; amount: number }>) => void;
+  onShiftChange?: (shiftName: string) => void;
 }) {
-  const [selectedShift, setSelectedShift] = React.useState('Shift 1 (Morning)');
+  const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
+  const [selectedShift, setSelectedShift] = React.useState('');
   const [savingReadings, setSavingReadings] = React.useState(false);
   const [showHistoryModal, setShowHistoryModal] = React.useState(false);
   const [dynamicOpeningReadings, setDynamicOpeningReadings] = React.useState<{ [nozzleId: string]: number }>({});
+  const [savedNozzleRates, setSavedNozzleRates] = React.useState<{ [shift: string]: { [srNo: number]: number } }>({});
+  const [scopeHistoricalSales, setScopeHistoricalSales] = React.useState<number | null>(null);
+  const [nozzleScopeSummaries, setNozzleScopeSummaries] = React.useState<{
+    [nozzleKey: string]: {
+      openingReading: number;
+      closingReading: number;
+      testingQuantity: number;
+      salesLiters: number;
+      ratePerLitre: number;
+      totalAmount: number;
+    };
+  }>({});
+
+  React.useEffect(() => {
+    const loadMasterShifts = async () => {
+      try {
+        const shifts = await fetchShiftsAll();
+        if (shifts && shifts.length > 0) {
+          setMasterShifts(shifts);
+          const activeShift = getActiveShiftNameFromMaster(shifts);
+          setSelectedShift(activeShift);
+          if (onShiftChange) onShiftChange(activeShift);
+        }
+      } catch (err) {
+        console.error('Failed to fetch master shifts:', err);
+      }
+    };
+    loadMasterShifts();
+  }, []);
+
+  const activeShiftNames = React.useMemo(() => {
+    if (masterShifts.length > 0) {
+      return masterShifts.map(s => s.shiftName);
+    }
+    return ['Shift 1 (Morning)', 'Shift 2 (Afternoon)', 'Shift 3 (Night)'];
+  }, [masterShifts]);
+
+  React.useEffect(() => {
+    if (activeShiftNames.length > 0 && (!selectedShift || !activeShiftNames.includes(selectedShift))) {
+      const activeShift = getActiveShiftNameFromMaster(masterShifts);
+      const matched = activeShiftNames.includes(activeShift) ? activeShift : activeShiftNames[0];
+      setSelectedShift(matched);
+      if (onShiftChange) onShiftChange(matched);
+    }
+  }, [activeShiftNames, masterShifts, selectedShift]);
+
+  React.useEffect(() => {
+    if (selectedShift && onShiftChange) {
+      onShiftChange(selectedShift);
+    }
+  }, [selectedShift]);
+
+  const initialBaseOpeningsRef = React.useRef<{ [id: string]: number }>({});
+
+  React.useEffect(() => {
+    initialBaseOpeningsRef.current = {};
+  }, [mpd?.id]);
+
+  const targetDate = React.useMemo(() => selectedDate || new Date().toISOString().slice(0, 10), [selectedDate]);
+
+  React.useEffect(() => {
+    if (scopeMode === 'shift') {
+      setScopeHistoricalSales(null);
+      setNozzleScopeSummaries({});
+      return;
+    }
+    const loadScopeMeterSales = async () => {
+      try {
+        const params: any = {
+          size: 100000
+        };
+        if (mpd?.id) params.mpdId = mpd.id;
+        if (scopeMode === 'day' && targetDate) {
+          params.fromDate = targetDate;
+          params.toDate = targetDate;
+        }
+        const res = await fetchMeterReadingsHistory(params);
+        let filtered = res.content || [];
+        const targetMpdName = mpd?.mpdName || mpdName;
+        if (targetMpdName) {
+          const matchNumber = targetMpdName.match(/\d+/);
+          const numStr = matchNumber ? matchNumber[0] : '';
+          filtered = filtered.filter(r => {
+            if (r.mpdName && targetMpdName && r.mpdName.toLowerCase().includes(targetMpdName.toLowerCase())) return true;
+            if (r.mpdName && targetMpdName && targetMpdName.toLowerCase().includes(r.mpdName.toLowerCase())) return true;
+            if (numStr && r.mpdName && r.mpdName.match(/\d+/)?.[0] === numStr) return true;
+            if (numStr && r.mpdId && String(r.mpdId) === numStr) return true;
+            return false;
+          });
+        }
+        const total = filtered.reduce((sum: number, item: any) => {
+          const amt = item.netAmount !== undefined && item.netAmount !== null
+            ? Number(item.netAmount)
+            : (Number(item.salesQuantity) || (Number(item.salesLiters) || 0)) * (Number(item.rate) || (Number(item.ratePerLitre) || 0));
+          return sum + (amt || 0);
+        }, 0);
+        setScopeHistoricalSales(total);
+
+        // Group per nozzle
+        const summaries: { [key: string]: any } = {};
+        filtered.forEach((r: any) => {
+          const nozzleIdKey = r.nozzleId ? String(r.nozzleId).toLowerCase() : '';
+          const nozzleNameKey = r.nozzleName ? String(r.nozzleName).toLowerCase() : '';
+          const keys = [nozzleIdKey, nozzleNameKey].filter(Boolean);
+
+          keys.forEach(key => {
+            if (!summaries[key]) {
+              summaries[key] = {
+                openingReading: Number(r.openingReading) || 0,
+                closingReading: Number(r.closingReading) || 0,
+                testingQuantity: Number(r.testingQuantity) || 0,
+                salesLiters: Number(r.salesLiters || r.salesQuantity) || 0,
+                ratePerLitre: Number(r.ratePerLitre || r.rate) || 0,
+                totalAmount: Number(r.totalAmount || r.netAmount) || 0,
+                firstDate: r.date,
+                lastDate: r.date
+              };
+            } else {
+              if (Number(r.openingReading) > 0 && (summaries[key].openingReading === 0 || r.date < summaries[key].firstDate)) {
+                summaries[key].openingReading = Number(r.openingReading);
+                summaries[key].firstDate = r.date;
+              }
+              if (Number(r.closingReading) >= summaries[key].closingReading) {
+                summaries[key].closingReading = Number(r.closingReading);
+                summaries[key].lastDate = r.date;
+              }
+              summaries[key].testingQuantity += Number(r.testingQuantity) || 0;
+              summaries[key].salesLiters += Number(r.salesLiters || r.salesQuantity) || 0;
+              if (Number(r.ratePerLitre || r.rate) > 0) {
+                summaries[key].ratePerLitre = Number(r.ratePerLitre || r.rate);
+              }
+              summaries[key].totalAmount += Number(r.totalAmount || r.netAmount) || 0;
+            }
+          });
+        });
+        setNozzleScopeSummaries(summaries);
+      } catch (err) {
+        console.error('Failed to load scope meter sales:', err);
+      }
+    };
+    loadScopeMeterSales();
+  }, [mpdName, mpd?.mpdName, mpd?.id, targetDate, scopeMode]);
 
   React.useEffect(() => {
     const loadBackendOpenings = async () => {
-      if (mpd && mpd.nozzles && mpd.nozzles.length > 0) {
+      if (mpd && mpd.nozzles && mpd.nozzles.length > 0 && selectedShift) {
         const openings: { [id: string]: number } = {};
         for (const n of mpd.nozzles) {
           try {
-            const latest = await fetchLatestMeterReading(n.id);
+            // Exclude targetDate's selectedShift record so we get the PREVIOUS shift/day closing
+            const latest = await fetchLatestMeterReading(n.id, targetDate, selectedShift);
             if (latest != null && !isNaN(latest)) {
               openings[n.id] = latest;
             }
@@ -359,16 +720,23 @@ function MeterReadingTable({
             console.error('Failed to fetch latest meter reading for nozzle:', n.id, err);
           }
         }
+        for (const n of mpd.nozzles) {
+          if (initialBaseOpeningsRef.current[n.id] === undefined) {
+            const val = openings[n.id] ?? (n.initialOpeningReading != null && !isNaN(n.initialOpeningReading) ? n.initialOpeningReading : getDefaultOpeningReading(n.nozzleName, n.fuelType, 0));
+            initialBaseOpeningsRef.current[n.id] = val;
+          }
+        }
         setDynamicOpeningReadings(openings);
       }
     };
     loadBackendOpenings();
-  }, [mpd]);
+  }, [mpd, selectedShift, targetDate]);
 
   const nozzleData = React.useMemo(() => {
     if (mpd && mpd.nozzles && mpd.nozzles.length > 0) {
       return mpd.nozzles.map((n: any, index: number) => {
-        const openingReading = dynamicOpeningReadings[n.id] ?? getDefaultOpeningReading(n.nozzleName, n.fuelType, index);
+        const lockedBase = initialBaseOpeningsRef.current[n.id];
+        const openingReading = lockedBase ?? (dynamicOpeningReadings[n.id] ?? (n.initialOpeningReading != null && !isNaN(n.initialOpeningReading) ? n.initialOpeningReading : getDefaultOpeningReading(n.nozzleName, n.fuelType, index)));
         return {
           srNo: index + 1,
           id: n.id,
@@ -387,43 +755,117 @@ function MeterReadingTable({
     ];
   }, [mpd, dynamicOpeningReadings]);
 
-  const [shiftReadings, setShiftReadings] = React.useState<{ [shift: string]: { [key: number]: string } }>({
-    'Shift 1 (Morning)': {},
-    'Shift 2 (Afternoon)': {},
-    'Shift 3 (Night)': {}
-  });
+  const [shiftReadings, setShiftReadings] = React.useState<{ [shift: string]: { [key: number]: string } }>({});
+  const [isFallbackClosing, setIsFallbackClosing] = React.useState<{ [shift: string]: { [key: number]: boolean } }>({});
+
+  const loadExistingReadingsForShift = React.useCallback(async (shiftName: string) => {
+    if (!mpd || !mpd.nozzles || !shiftName) return;
+    const newShiftReadings: { [key: number]: string } = {};
+    const newTestingReadings: { [key: number]: string } = {};
+    const newFallbackStatus: { [key: number]: boolean } = {};
+    const newSavedRates: { [key: number]: number } = {};
+    let hasExisting = false;
+
+    for (let idx = 0; idx < mpd.nozzles.length; idx++) {
+      const n = mpd.nozzles[idx];
+      const srNo = idx + 1;
+      try {
+        const existing = await fetchExistingMeterReading(String(n.id), targetDate, shiftName);
+        if (existing && existing.closingReading != null) {
+          hasExisting = true;
+          newShiftReadings[srNo] = String(existing.closingReading);
+          newFallbackStatus[srNo] = false;
+          if (existing.testingQuantity != null) {
+            newTestingReadings[srNo] = String(existing.testingQuantity);
+          }
+          if (existing.openingReading != null && !isNaN(existing.openingReading)) {
+            initialBaseOpeningsRef.current[n.id] = existing.openingReading;
+          }
+          if (existing.ratePerLitre != null && existing.ratePerLitre > 0) {
+            newSavedRates[srNo] = existing.ratePerLitre;
+          }
+        } else {
+          const latestClosing = await fetchLatestMeterReading(String(n.id), targetDate, shiftName);
+          if (latestClosing != null && !isNaN(latestClosing)) {
+            newShiftReadings[srNo] = String(latestClosing);
+            newFallbackStatus[srNo] = true;
+          } else if (n.initialOpeningReading != null && !isNaN(n.initialOpeningReading)) {
+            newShiftReadings[srNo] = String(n.initialOpeningReading);
+            newFallbackStatus[srNo] = true;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch existing reading for nozzle:', n.id, err);
+      }
+    }
+
+    setSavedNozzleRates(prev => ({
+      ...prev,
+      [shiftName]: {
+        ...(prev[shiftName] || {}),
+        ...newSavedRates
+      }
+    }));
+
+    setTestingReadings(prev => ({
+      ...prev,
+      [shiftName]: {
+        ...(prev[shiftName] || {}),
+        ...newTestingReadings
+      }
+    }));
+
+    setIsFallbackClosing(prev => ({
+      ...prev,
+      [shiftName]: {
+        ...(prev[shiftName] || {}),
+        ...newFallbackStatus
+      }
+    }));
+
+    setShiftReadings(prev => ({
+      ...prev,
+      [shiftName]: {
+        ...(prev[shiftName] || {}),
+        ...newShiftReadings
+      }
+    }));
+
+    if (hasExisting) {
+      setDynamicOpeningReadings(prev => {
+        const updated = { ...prev };
+        for (let idx = 0; idx < mpd.nozzles.length; idx++) {
+          const n = mpd.nozzles[idx];
+          if (initialBaseOpeningsRef.current[n.id] !== undefined) {
+            updated[n.id] = initialBaseOpeningsRef.current[n.id];
+          }
+        }
+        return updated;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mpd, targetDate]);
 
   React.useEffect(() => {
-    const initialShift1: { [key: number]: string } = {};
-    nozzleData.forEach((nozzle) => {
-      const defaultSale = nozzle.fuelType?.toLowerCase().includes('diesel') ? 60.00 : 40.00;
-      const closing = nozzle.openingReading + defaultSale;
-      initialShift1[nozzle.srNo] = closing.toFixed(2);
-    });
-    setShiftReadings({
-      'Shift 1 (Morning)': initialShift1,
-      'Shift 2 (Afternoon)': {},
-      'Shift 3 (Night)': {}
-    });
-  }, [nozzleData]);
+    if (selectedShift) {
+      loadExistingReadingsForShift(selectedShift);
+    }
+  }, [selectedShift, loadExistingReadingsForShift]);
 
   const getOpeningForNozzle = React.useCallback((srNo: number, baseOpening: number, shift: string) => {
-    if (shift === 'Shift 1 (Morning)') {
+    const shiftIndex = activeShiftNames.indexOf(shift);
+    if (shiftIndex <= 0) {
       return baseOpening;
     }
-    if (shift === 'Shift 2 (Afternoon)') {
-      const s1Close = parseFloat(shiftReadings['Shift 1 (Morning)']?.[srNo] || '');
-      return (!isNaN(s1Close) && s1Close > 0) ? s1Close : baseOpening;
-    }
-    if (shift === 'Shift 3 (Night)') {
-      const s2Close = parseFloat(shiftReadings['Shift 2 (Afternoon)']?.[srNo] || '');
-      if (!isNaN(s2Close) && s2Close > 0) return s2Close;
-      const s1Close = parseFloat(shiftReadings['Shift 1 (Morning)']?.[srNo] || '');
-      if (!isNaN(s1Close) && s1Close > 0) return s1Close;
-      return baseOpening;
+    for (let i = shiftIndex - 1; i >= 0; i--) {
+      const prevShiftName = activeShiftNames[i];
+      const prevClose = parseFloat(shiftReadings[prevShiftName]?.[srNo] || '');
+      if (!isNaN(prevClose) && prevClose > 0) {
+        return prevClose;
+      }
     }
     return baseOpening;
-  }, [shiftReadings]);
+  }, [shiftReadings, activeShiftNames]);
 
   const activeNozzleData = React.useMemo(() => {
     return nozzleData.map(nozzle => {
@@ -435,10 +877,10 @@ function MeterReadingTable({
     });
   }, [nozzleData, getOpeningForNozzle, selectedShift]);
 
-  const closingReadings = shiftReadings[selectedShift] || {};
+  const [testingReadings, setTestingReadings] = React.useState<{ [shift: string]: { [key: number]: string } }>({});
 
-  const handleClosingReadingChange = (srNo: number, value: string) => {
-    setShiftReadings(prev => ({
+  const handleTestingReadingChange = (srNo: number, value: string) => {
+    setTestingReadings(prev => ({
       ...prev,
       [selectedShift]: {
         ...(prev[selectedShift] || {}),
@@ -447,9 +889,41 @@ function MeterReadingTable({
     }));
   };
 
-  const calculateSales = (srNo: number, openingReading: number, testing: number) => {
+  const getTestingForNozzle = React.useCallback((srNo: number) => {
+    const val = parseFloat(testingReadings[selectedShift]?.[srNo] || '0');
+    return !isNaN(val) && val >= 0 ? val : 0;
+  }, [testingReadings, selectedShift]);
+
+  const getEffectiveRateForNozzle = React.useCallback((srNo: number, fuelType: string) => {
+    const saved = savedNozzleRates[selectedShift]?.[srNo];
+    if (saved != null && saved > 0) return saved;
+    return getFuelRate(fuelType, rateMaster);
+  }, [savedNozzleRates, selectedShift, rateMaster]);
+
+  const closingReadings = shiftReadings[selectedShift] || {};
+
+  const handleClosingReadingChange = (srNo: number, value: string, openingReading?: number, nozzleNumber?: string) => {
+    setShiftReadings(prev => ({
+      ...prev,
+      [selectedShift]: {
+        ...(prev[selectedShift] || {}),
+        [srNo]: value
+      }
+    }));
+
+    if (openingReading !== undefined && value !== '') {
+      const val = parseFloat(value);
+      if (!isNaN(val) && val < openingReading) {
+        toast.warning(`Warning: Closing reading (${val}) for ${nozzleNumber || `Nozzle ${srNo}`} is less than Opening Reading (${openingReading.toFixed(2)})!`, {
+          id: `closing-warn-${selectedShift}-${srNo}`
+        });
+      }
+    }
+  };
+
+  const calculateSales = (srNo: number, openingReading: number) => {
     const closingReading = parseFloat(closingReadings[srNo] || '0');
-    // Handle totalizer rollover (closing < opening)
+    const testing = getTestingForNozzle(srNo);
     let sales = 0;
     if (closingReading < openingReading && closingReading > 0) {
       const maxLimit = 1000000.0;
@@ -461,15 +935,32 @@ function MeterReadingTable({
   };
 
   const calculateFuelWiseTotals = () => {
-    const totals: { [key: string]: { units: number; amount: number } } = {};
+    const totals: { [key: string]: { units: number; amount: number; rate: number } } = {};
 
     activeNozzleData.forEach((nozzle) => {
-      const sales = parseFloat(calculateSales(nozzle.srNo, nozzle.openingReading, nozzle.testing));
+      const keyId = String(nozzle.id).toLowerCase();
+      const keyName = String(nozzle.nozzleNumber).toLowerCase();
+      const scopeItem = scopeMode !== 'shift' ? (nozzleScopeSummaries[keyId] || nozzleScopeSummaries[keyName]) : null;
+
+      let sales = 0;
+      let rate = getEffectiveRateForNozzle(nozzle.srNo, nozzle.fuelType);
+      let amount = 0;
+
+      if (scopeMode !== 'shift' && scopeItem) {
+        sales = scopeItem.salesLiters || 0;
+        if (scopeItem.ratePerLitre > 0) rate = scopeItem.ratePerLitre;
+        amount = scopeItem.totalAmount || (sales * rate);
+      } else {
+        sales = parseFloat(calculateSales(nozzle.srNo, nozzle.openingReading));
+        amount = sales * rate;
+      }
+
       if (!totals[nozzle.fuelType]) {
-        totals[nozzle.fuelType] = { units: 0, amount: 0 };
+        totals[nozzle.fuelType] = { units: 0, amount: 0, rate };
       }
       totals[nozzle.fuelType].units += sales;
-      totals[nozzle.fuelType].amount += sales * getFuelRate(nozzle.fuelType);
+      totals[nozzle.fuelType].amount += amount;
+      totals[nozzle.fuelType].rate = rate;
     });
 
     return totals;
@@ -501,18 +992,40 @@ function MeterReadingTable({
 
   React.useEffect(() => {
     if (onTotalSalesChange) {
-      onTotalSalesChange(grandTotal.totalAmount);
+      onTotalSalesChange(grandTotal.totalAmount || 0);
     }
-  }, [grandTotal.totalAmount, onTotalSalesChange]);
+    if (onFuelSalesSummaryChange) {
+      const list = Object.entries(fuelTotals).map(([product, data]) => ({
+        product,
+        units: data.units,
+        rate: data.rate || getFuelRate(product, rateMaster),
+        amount: data.amount
+      }));
+      onFuelSalesSummaryChange(list);
+    }
+  }, [grandTotal.totalAmount, scopeMode, fuelTotals, onTotalSalesChange, onFuelSalesSummaryChange, rateMaster]);
 
   const handleSaveShiftReadings = async () => {
+    for (const n of activeNozzleData) {
+      const closeStr = closingReadings[n.srNo];
+      if (closeStr !== undefined && closeStr !== '') {
+        const closeVal = parseFloat(closeStr);
+        if (!isNaN(closeVal) && closeVal < n.openingReading) {
+          toast.error(`Cannot Save: Closing reading (${closeVal}) for ${n.nozzleNumber} must be greater than or equal to Opening Reading (${n.openingReading.toFixed(2)})!`);
+          return;
+        }
+      }
+    }
+
     try {
       setSavingReadings(true);
       const payload: MeterReading[] = activeNozzleData.map(n => {
         const closeVal = parseFloat(closingReadings[n.srNo] || '0') || n.openingReading;
-        const sales = parseFloat(calculateSales(n.srNo, n.openingReading, n.testing));
+        const testVal = getTestingForNozzle(n.srNo);
+        const sales = parseFloat(calculateSales(n.srNo, n.openingReading));
+        const rate = getEffectiveRateForNozzle(n.srNo, n.fuelType);
         return {
-          date: new Date().toISOString().slice(0, 10),
+          date: targetDate,
           shiftName: selectedShift,
           mpdId: mpd?.id,
           mpdName: mpdName,
@@ -521,16 +1034,17 @@ function MeterReadingTable({
           fuelType: n.fuelType,
           openingReading: n.openingReading,
           closingReading: closeVal,
-          testingQuantity: n.testing,
+          testingQuantity: testVal,
           salesLiters: sales,
-          ratePerLitre: getFuelRate(n.fuelType),
-          totalAmount: sales * getFuelRate(n.fuelType),
+          ratePerLitre: rate,
+          totalAmount: sales * rate,
           recordedBy: 'Shift Manager'
         };
       });
 
       await saveMeterReadingsBatchApi(payload);
       toast.success(`Successfully saved meter readings for ${selectedShift}!`);
+      await loadExistingReadingsForShift(selectedShift);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to save shift meter readings');
     } finally {
@@ -540,61 +1054,84 @@ function MeterReadingTable({
 
   return (
     <div>
-      <MeterReadingHistoryModal 
-        open={showHistoryModal} 
-        onOpenChange={setShowHistoryModal} 
-        mpdId={mpd?.id} 
-        mpdName={mpdName} 
+      <MeterReadingHistoryModal
+        open={showHistoryModal}
+        onOpenChange={setShowHistoryModal}
+        mpdId={mpd?.id}
+        mpdName={mpdName}
       />
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <h3 className="text-lg font-semibold text-foreground">Meter Readings - {mpdName}</h3>
         <div className="flex items-center gap-2">
-          <Button 
-            type="button" 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setShowHistoryModal(true)} 
+          <h3 className="text-lg font-semibold text-foreground">Meter Readings - {mpdName}</h3>
+          {scopeMode === 'shift' && selectedShift && (
+            <Badge variant="outline" className="font-normal text-xs bg-muted/50 text-muted-foreground border-border">
+              <Clock className="w-3 h-3 mr-1 inline text-primary" /> {selectedShift}
+            </Badge>
+          )}
+          {scopeMode === 'overall' && (
+            <Badge className="bg-blue-600 text-white font-normal text-xs">
+              <Layers className="w-3 h-3 mr-1 inline" /> Cumulative Totalizer Mode
+            </Badge>
+          )}
+          {scopeMode === 'day' && (
+            <Badge className="bg-purple-600 text-white font-normal text-xs">
+              <Calendar className="w-3 h-3 mr-1 inline" /> Daily Sales View
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowHistoryModal(true)}
             className="gap-1.5 h-9 text-xs"
           >
             <History className="w-4 h-4 text-purple-600" /> View Reading Logs
           </Button>
-          <Button 
-            type="button" 
-            size="sm" 
-            onClick={handleSaveShiftReadings} 
-            disabled={savingReadings} 
-            className="bg-green-600 hover:bg-green-700 text-white gap-1.5 h-9 text-xs font-semibold"
-          >
-            {savingReadings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save Shift Readings
-          </Button>
+          {scopeMode === 'shift' && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveShiftReadings}
+              disabled={savingReadings}
+              className="bg-green-600 hover:bg-green-700 text-white gap-1.5 h-9 text-xs font-semibold"
+            >
+              {savingReadings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Shift Readings
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Shift Selection Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 p-3 bg-muted/20 border rounded-lg">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-primary" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shift-Wise Meter Reading:</span>
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-          {['Shift 1 (Morning)', 'Shift 2 (Afternoon)', 'Shift 3 (Night)'].map((shift) => (
-            <button
-              key={shift}
-              type="button"
-              onClick={() => setSelectedShift(shift)}
-              className={`text-xs h-9 px-4 rounded-md font-medium whitespace-nowrap shrink-0 transition-all border ${
-                selectedShift === shift
+
+
+      {/* Shift Selection Bar (Only in Shift Mode) */}
+      {scopeMode === 'shift' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 p-3 bg-muted/20 border rounded-lg">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shift-Wise Meter Reading:</span>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            {activeShiftNames.map((shift) => (
+              <button
+                key={shift}
+                type="button"
+                onClick={() => setSelectedShift(shift)}
+                title={shift}
+                className={`text-xs h-9 px-4 rounded-md font-medium whitespace-nowrap shrink-0 transition-all border max-w-[220px] truncate ${selectedShift === shift
                   ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                   : 'bg-card text-slate-700 border-border hover:bg-muted/50'
-              }`}
-            >
-              {shift}
-            </button>
-          ))}
+                  }`}
+              >
+                {shift}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Compact Meter Reading Table */}
       <div className="border rounded-lg overflow-hidden mb-6">
@@ -605,50 +1142,113 @@ function MeterReadingTable({
                 <th className="p-3 text-left text-sm font-semibold">Sr.No</th>
                 <th className="p-3 text-left text-sm font-semibold">Nozzle</th>
                 <th className="p-3 text-left text-sm font-semibold">Fuel Type</th>
-                <th className="p-3 text-left text-sm font-semibold">Opening Reading</th>
-                <th className="p-3 text-left text-sm font-semibold">Testing</th>
-                <th className="p-3 text-left text-sm font-semibold">Closing Reading</th>
-                <th className="p-3 text-left text-sm font-semibold">Sales (Unit)</th>
+                <th className="p-3 text-left text-sm font-semibold">
+                  {scopeMode === 'overall' ? 'Day 1 Opening' : scopeMode === 'day' ? 'Day Start Opening' : 'Opening Reading'}
+                </th>
+                <th className="p-3 text-left text-sm font-semibold">Testing (L)</th>
+                <th className="p-3 text-left text-sm font-semibold">
+                  {scopeMode === 'overall' ? 'Latest Closing' : scopeMode === 'day' ? 'Day End Closing' : 'Closing Reading'}
+                </th>
+                <th className="p-3 text-left text-sm font-semibold">
+                  {scopeMode === 'overall' ? 'Cumulative Sales (L)' : scopeMode === 'day' ? 'Daily Sales (L)' : 'Sales (Unit)'}
+                </th>
+                <th className="p-3 text-left text-sm font-semibold">Rate (₹/L)</th>
+                <th className="p-3 text-right text-sm font-semibold">Total Amount</th>
               </tr>
             </thead>
             <tbody>
-              {activeNozzleData.map((nozzle) => (
-                <tr key={nozzle.srNo} className="border-b hover:bg-muted/30">
-                  <td className="p-3 text-sm">{nozzle.srNo}</td>
-                  <td className="p-3 text-sm font-medium">{nozzle.nozzleNumber}</td>
-                  <td className="p-3 text-sm">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      nozzle.fuelType?.toLowerCase().includes('diesel') 
-                        ? 'bg-orange-100 text-orange-800' 
+              {activeNozzleData.map((nozzle) => {
+                const keyId = String(nozzle.id).toLowerCase();
+                const keyName = String(nozzle.nozzleNumber).toLowerCase();
+                const scopeItem = scopeMode !== 'shift' ? (nozzleScopeSummaries[keyId] || nozzleScopeSummaries[keyName]) : null;
+
+                const displayOpening = scopeMode !== 'shift' && scopeItem && scopeItem.openingReading > 0
+                  ? scopeItem.openingReading
+                  : nozzle.openingReading;
+
+                const displayClosing = scopeMode !== 'shift' && scopeItem && scopeItem.closingReading > 0
+                  ? scopeItem.closingReading
+                  : (scopeMode !== 'shift' ? displayOpening : parseFloat(closingReadings[nozzle.srNo] || '0'));
+
+                const displayTesting = scopeMode !== 'shift' && scopeItem
+                  ? scopeItem.testingQuantity
+                  : getTestingForNozzle(nozzle.srNo);
+
+                const displaySales = scopeMode !== 'shift' && scopeItem
+                  ? scopeItem.salesLiters
+                  : parseFloat(calculateSales(nozzle.srNo, nozzle.openingReading));
+
+                const displayRate = scopeMode !== 'shift' && scopeItem && scopeItem.ratePerLitre > 0
+                  ? scopeItem.ratePerLitre
+                  : getEffectiveRateForNozzle(nozzle.srNo, nozzle.fuelType);
+
+                const displayAmount = scopeMode !== 'shift' && scopeItem && scopeItem.totalAmount > 0
+                  ? scopeItem.totalAmount
+                  : (displaySales * displayRate);
+
+                return (
+                  <tr key={nozzle.srNo} className="border-b hover:bg-muted/30">
+                    <td className="p-3 text-sm">{nozzle.srNo}</td>
+                    <td className="p-3 text-sm font-medium">{nozzle.nozzleNumber}</td>
+                    <td className="p-3 text-sm">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${nozzle.fuelType?.toLowerCase().includes('diesel')
+                        ? 'bg-orange-100 text-orange-800'
                         : 'bg-green-100 text-green-800'
-                    }`}>
-                      {nozzle.fuelType}
-                    </span>
-                  </td>
-                  <td className="p-3 text-sm">
-                    <span className="text-muted-foreground">{nozzle.openingReading.toFixed(2)}</span>
-                  </td>
-                  <td className="p-3 text-sm">
-                    <span className="text-muted-foreground">{nozzle.testing.toFixed(2)}</span>
-                  </td>
-                  <td className="p-3">
-                    <Input 
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={closingReadings[nozzle.srNo] || ''}
-                      onChange={(e) => handleClosingReadingChange(nozzle.srNo, e.target.value)}
-                      onWheel={(e) => e.currentTarget.blur()}
-                      className="h-9 text-sm w-32"
-                    />
-                  </td>
-                  <td className="p-3 text-sm">
-                    <span className="font-semibold text-blue-600">
-                      {calculateSales(nozzle.srNo, nozzle.openingReading, nozzle.testing)} L
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                        }`}>
+                        {nozzle.fuelType}
+                      </span>
+                    </td>
+                    <td className="p-3 text-sm">
+                      <span className="text-muted-foreground font-mono">{displayOpening.toFixed(2)}</span>
+                    </td>
+                    <td className="p-3">
+                      {scopeMode === 'shift' ? (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={testingReadings[selectedShift]?.[nozzle.srNo] ?? ''}
+                          onChange={(e) => handleTestingReadingChange(nozzle.srNo, e.target.value)}
+                          onWheel={(e) => e.currentTarget.blur()}
+                          className="h-9 text-sm w-24 font-mono text-amber-700 dark:text-amber-300 font-semibold"
+                        />
+                      ) : (
+                        <span className="font-mono text-amber-700 dark:text-amber-300 font-semibold text-sm">
+                          {displayTesting.toFixed(2)} L
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {scopeMode === 'shift' ? (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={closingReadings[nozzle.srNo] || ''}
+                          onChange={(e) => handleClosingReadingChange(nozzle.srNo, e.target.value, nozzle.openingReading, nozzle.nozzleNumber)}
+                          onWheel={(e) => e.currentTarget.blur()}
+                          className="h-9 text-sm w-36 font-mono border-input"
+                        />
+                      ) : (
+                        <span className="font-mono text-foreground font-semibold text-sm">
+                          {displayClosing > 0 ? displayClosing.toFixed(2) : '-'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-sm">
+                      <span className="font-semibold text-blue-600 font-mono">
+                        {displaySales.toFixed(2)} L
+                      </span>
+                    </td>
+                    <td className="p-3 text-sm font-mono text-muted-foreground">
+                      ₹{displayRate.toFixed(2)}
+                    </td>
+                    <td className="p-3 text-sm font-mono font-semibold text-right text-emerald-600 dark:text-emerald-400">
+                      {formatIndianCurrency(displayAmount)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -704,19 +1304,54 @@ interface CreditSalesRecord {
   totalAmount: number;
   mpd: string;
   nozzle: string;
-}function CreditSalesTab({ mpdName }: { mpdName: string }) {
+}
+
+function CreditSalesTab({
+  mpdName,
+  selectedDate,
+  selectedShift,
+  scopeMode,
+  onTotalChange
+}: {
+  mpdName: string;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
+  onTotalChange?: (total: number) => void;
+}) {
   return (
     <CreditSales
       isEmbedded={true}
       prefilledMpdName={mpdName}
+      selectedDate={selectedDate}
+      selectedShift={selectedShift}
+      scopeMode={scopeMode}
+      onTotalChange={onTotalChange}
     />
   );
 }
-function OwnUseTab({ mpdName }: { mpdName: string }) {
+
+function OwnUseTab({
+  mpdName,
+  selectedDate,
+  selectedShift,
+  scopeMode,
+  onTotalChange
+}: {
+  mpdName: string;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
+  onTotalChange?: (total: number) => void;
+}) {
   return (
     <OwnUsage
       isEmbedded={true}
       prefilledMpdName={mpdName}
+      selectedDate={selectedDate}
+      selectedShift={selectedShift}
+      scopeMode={scopeMode}
+      onTotalChange={onTotalChange}
     />
   );
 }
@@ -731,24 +1366,25 @@ interface SettlementRecord {
   remarks?: string;
 }
 
-function SettlementsTab({ mpdName }: { mpdName: string }) {
+function SettlementsTab({
+  mpdName,
+  selectedDate,
+  selectedShift,
+  scopeMode = 'overall',
+  onTotalChange
+}: {
+  mpdName: string;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
+  onTotalChange?: (total: number) => void;
+}) {
+  const [settlementRecords, setSettlementRecords] = React.useState<ShiftSettlementRecord[]>([]);
+  const [loading, setLoading] = React.useState(false);
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const [viewSettlementRecord, setViewSettlementRecord] = React.useState<SettlementRecord | null>(null);
-  const [isEditing, setIsEditing] = React.useState(false);
+  const [viewSettlementRecord, setViewSettlementRecord] = React.useState<ShiftSettlementRecord | null>(null);
+  const [editingRecord, setEditingRecord] = React.useState<ShiftSettlementRecord | null>(null);
 
-  const handleEditSettlement = (record: SettlementRecord) => {
-    setIsEditing(true);
-    setFormData({
-      paymentMethod: record.paymentMethod,
-      amount: String(record.amount),
-      referenceNo: record.referenceNo,
-      date: record.date,
-      time: record.time,
-      remarks: ''
-    });
-    setShowAddForm(true);
-  };
-  
   const [formData, setFormData] = React.useState({
     paymentMethod: '',
     amount: '',
@@ -767,57 +1403,58 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
     'Cheque'
   ];
 
-  // Mock settlement data for this MPD
-  const settlementRecords: SettlementRecord[] = [
-    {
-      id: 'SET-2024-045',
-      paymentMethod: 'PhonePe',
-      amount: 15000.00,
-      referenceNo: 'TXN123456789',
-      date: '2024-03-20',
-      time: '14:30'
-    },
-    {
-      id: 'SET-2024-044',
-      paymentMethod: 'Swipe Machine',
-      amount: 25000.00,
-      referenceNo: 'CARD987654321',
-      date: '2024-03-20',
-      time: '12:45'
-    },
-    {
-      id: 'SET-2024-043',
-      paymentMethod: 'RTGS',
-      amount: 50000.00,
-      referenceNo: 'RTGS2024032001',
-      date: '2024-03-20',
-      time: '10:15'
-    },
-    {
-      id: 'SET-2024-042',
-      paymentMethod: 'BPCL Card',
-      amount: 8000.00,
-      referenceNo: 'BPCL789456123',
-      date: '2024-03-20',
-      time: '09:30'
-    },
-    {
-      id: 'SET-2024-041',
-      paymentMethod: 'ULP',
-      amount: 12000.00,
-      referenceNo: 'ULP2024001',
-      date: '2024-03-20',
-      time: '08:00'
-    },
-    {
-      id: 'SET-2024-040',
-      paymentMethod: 'Cheque',
-      amount: 35000.00,
-      referenceNo: 'CHQ456789',
-      date: '2024-03-19',
-      time: '16:20'
-    },
-  ];
+  const loadSettlements = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchSettlementsByMpd(mpdName);
+      let filtered = data;
+      if (selectedDate) {
+        if (scopeMode === 'shift') {
+          // Filter by date AND shift for shift-wise balance accuracy
+          filtered = data.filter(r => r.date === selectedDate && (!selectedShift || !r.shiftName || r.shiftName === selectedShift));
+        } else if (scopeMode === 'day') {
+          filtered = data.filter(r => r.date === selectedDate);
+        }
+        // scopeMode === 'overall': return all (no date filter)
+      }
+      setSettlementRecords(filtered);
+      const total = filtered.reduce((sum, r) => sum + (r.amount || 0), 0);
+      if (onTotalChange) onTotalChange(total);
+    } catch (err) {
+      console.error('Failed to fetch settlements:', err);
+      toast.error('Failed to load settlements data from server');
+    } finally {
+      setLoading(false);
+    }
+  }, [mpdName, selectedDate, selectedShift, scopeMode, onTotalChange]);
+
+  React.useEffect(() => {
+    loadSettlements();
+  }, [loadSettlements]);
+
+  const handleEditSettlement = (record: ShiftSettlementRecord) => {
+    setEditingRecord(record);
+    setFormData({
+      paymentMethod: record.paymentMethod,
+      amount: String(record.amount),
+      referenceNo: record.referenceNo,
+      date: record.date || new Date().toISOString().split('T')[0],
+      time: record.time || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      remarks: record.remarks || ''
+    });
+    setShowAddForm(true);
+  };
+
+  const handleDeleteSettlement = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this settlement record?')) return;
+    try {
+      await deleteSettlementApi(id);
+      toast.success('Settlement record deleted successfully');
+      loadSettlements();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete settlement record');
+    }
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -828,13 +1465,18 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
   };
 
   const formatDateTime = (date: string, time: string) => {
-    const dateObj = new Date(date);
-    const formattedDate = dateObj.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
-    return `${formattedDate}, ${time}`;
+    if (!date) return '-';
+    try {
+      const dateObj = new Date(date);
+      const formattedDate = dateObj.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+      return `${formattedDate}${time ? `, ${time}` : ''}`;
+    } catch {
+      return date;
+    }
   };
 
   const calculateMethodWiseTotals = () => {
@@ -891,7 +1533,7 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
   };
 
   React.useEffect(() => {
-    if (showAddForm) {
+    if (showAddForm && !editingRecord) {
       const now = new Date();
       setFormData(prev => ({
         ...prev,
@@ -899,20 +1541,47 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
         time: now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
       }));
     }
-  }, [showAddForm]);
+  }, [showAddForm, editingRecord]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Settlement Form submitted:', formData);
-    setShowAddForm(false);
-    setFormData({
-      paymentMethod: '',
-      amount: '',
-      referenceNo: '',
-      date: '',
-      time: '',
-      remarks: ''
-    });
+    if (!formData.paymentMethod) { toast.warning('Please select a payment method'); return; }
+    const amt = parseFloat(formData.amount);
+    if (isNaN(amt) || amt <= 0) { toast.warning('Please enter a valid positive amount'); return; }
+
+    try {
+      const payload = {
+        mpdName,
+        paymentMethod: formData.paymentMethod,
+        amount: amt,
+        referenceNo: formData.referenceNo.trim(),
+        date: formData.date || new Date().toISOString().split('T')[0],
+        time: formData.time || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+        remarks: formData.remarks.trim()
+      };
+
+      if (editingRecord) {
+        await updateSettlementApi(editingRecord.id, payload);
+        toast.success('Settlement record updated successfully');
+      } else {
+        await createSettlementApi(payload);
+        toast.success('Settlement record saved successfully');
+      }
+
+      setShowAddForm(false);
+      setEditingRecord(null);
+      setFormData({
+        paymentMethod: '',
+        amount: '',
+        referenceNo: '',
+        date: '',
+        time: '',
+        remarks: ''
+      });
+      loadSettlements();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save settlement record');
+    }
   };
 
   const methodWiseTotals = calculateMethodWiseTotals();
@@ -923,8 +1592,8 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
       {/* Header with Add New button */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Settlements - {mpdName}</h3>
-        <Button 
-          onClick={() => { setIsEditing(false); setShowAddForm(true); }}
+        <Button
+          onClick={() => { setEditingRecord(null); setFormData({ paymentMethod: '', amount: '', referenceNo: '', date: '', time: '', remarks: '' }); setShowAddForm(true); }}
           className="bg-green-600 hover:bg-green-700"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -935,75 +1604,83 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
       {/* Settlements Table */}
       <div className="border rounded-lg overflow-hidden mb-6">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="p-3 text-left text-sm font-semibold">S.No</th>
-                <th className="p-3 text-left text-sm font-semibold">Payment Method</th>
-                <th className="p-3 text-left text-sm font-semibold">Reference No.</th>
-                <th className="p-3 text-left text-sm font-semibold">Date & Time</th>
-                <th className="p-3 text-right text-sm font-semibold">Amount</th>
-                <th className="p-3 text-center text-sm font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {settlementRecords.map((record, index) => (
-                <tr key={record.id} className="border-b hover:bg-muted/30">
-                  <td className="p-3 text-sm">{index + 1}</td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                        {getPaymentMethodIcon(record.paymentMethod)}
-                      </div>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentMethodColor(record.paymentMethod)}`}>
-                        {record.paymentMethod}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="p-3 text-sm font-medium">{record.referenceNo}</td>
-                  <td className="p-3 text-sm">{formatDateTime(record.date, record.time)}</td>
-                  <td className="p-3 text-sm font-semibold text-green-600 text-right">
-                    {formatCurrency(record.amount)}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center justify-center gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-8 w-8 p-0 hover:bg-green-50 hover:text-green-600"
-                        title="View Record"
-                        onClick={() => setViewSettlementRecord(record)}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-8 w-8 p-0 hover:bg-green-50 hover:text-green-600"
-                        title="Edit Record"
-                        onClick={() => handleEditSettlement(record)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
+          {loading ? (
+            <div className="flex items-center justify-center py-12 gap-3 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin text-green-600" />
+              Loading settlements data...
+            </div>
+          ) : (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-muted/50 border-b">
+                  <th className="p-3 text-left text-sm font-semibold">S.No</th>
+                  <th className="p-3 text-left text-sm font-semibold">Payment Method</th>
+                  <th className="p-3 text-left text-sm font-semibold">Reference No.</th>
+                  <th className="p-3 text-left text-sm font-semibold">Date & Time</th>
+                  <th className="p-3 text-right text-sm font-semibold">Amount</th>
+                  <th className="p-3 text-center text-sm font-semibold">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          
-          {settlementRecords.length === 0 && (
+              </thead>
+              <tbody>
+                {settlementRecords.map((record, index) => (
+                  <tr key={record.id} className="border-b hover:bg-muted/30">
+                    <td className="p-3 text-sm">{index + 1}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                          {getPaymentMethodIcon(record.paymentMethod)}
+                        </div>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentMethodColor(record.paymentMethod)}`}>
+                          {record.paymentMethod}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-3 text-sm font-medium">{record.referenceNo || '-'}</td>
+                    <td className="p-3 text-sm">{formatDateTime(record.date, record.time)}</td>
+                    <td className="p-3 text-sm font-semibold text-green-600 text-right">
+                      {formatCurrency(record.amount)}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 hover:bg-green-50 hover:text-green-600"
+                          title="View Record"
+                          onClick={() => setViewSettlementRecord(record)}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 hover:bg-green-50 hover:text-green-600"
+                          title="Edit Record"
+                          onClick={() => handleEditSettlement(record)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+                          title="Delete"
+                          onClick={() => handleDeleteSettlement(record.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {!loading && settlementRecords.length === 0 && (
             <div className="text-center py-12">
               <CreditCard className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-              <p className="text-muted-foreground">No settlements for this MPD</p>
+              <p className="text-muted-foreground">No settlements recorded for {mpdName}</p>
               <p className="text-sm text-muted-foreground mt-1">
                 Click "Add Settlement" to record a payment
               </p>
@@ -1045,16 +1722,16 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
         </div>
       </div>
 
-      {/* Add New Settlement Dialog */}
+      {/* Add / Edit Settlement Dialog */}
       <Dialog open={showAddForm} onOpenChange={setShowAddForm}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Add Settlement - {mpdName}</DialogTitle>
+            <DialogTitle>{editingRecord ? 'Edit Settlement' : 'Add Settlement'} - {mpdName}</DialogTitle>
             <DialogDescription>
-              Record a payment settlement for this MPD.
+              {editingRecord ? 'Update payment settlement details.' : 'Record a new payment settlement for this MPD.'}
             </DialogDescription>
           </DialogHeader>
-          
+
           <form onSubmit={handleSubmit}>
             <div className="space-y-4 py-4">
               {/* Date and Time */}
@@ -1065,8 +1742,8 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                     id="settlement-date"
                     type="date"
                     value={formData.date}
-                    disabled
-                    className="bg-muted"
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className="bg-background"
                   />
                 </div>
 
@@ -1076,18 +1753,18 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                     id="settlement-time"
                     type="time"
                     value={formData.time}
-                    disabled
-                    className="bg-muted"
+                    onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                    className="bg-background"
                   />
                 </div>
               </div>
 
               {/* Payment Method */}
               <div className="space-y-2">
-                <Label htmlFor="paymentMethod">Payment Method</Label>
-                <Select 
-                  value={formData.paymentMethod} 
-                  onValueChange={(value) => setFormData({...formData, paymentMethod: value})}
+                <Label htmlFor="paymentMethod">Payment Method <span className="text-red-500">*</span></Label>
+                <Select
+                  value={formData.paymentMethod}
+                  onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
                 >
                   <SelectTrigger id="paymentMethod" className="border border-green-200 focus:border-green-400">
                     <SelectValue placeholder="Select payment method" />
@@ -1103,14 +1780,14 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
               {/* Amount and Reference Number */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="settlement-amount">Amount (₹)</Label>
+                  <Label htmlFor="settlement-amount">Amount (₹) <span className="text-red-500">*</span></Label>
                   <Input
                     id="settlement-amount"
                     type="number"
                     step="0.01"
                     placeholder="0.00"
                     value={formData.amount}
-                    onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     onWheel={(e) => e.currentTarget.blur()}
                     className="border border-green-200 focus:border-green-400"
                     required
@@ -1123,9 +1800,8 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                     id="referenceNo"
                     placeholder="Transaction/Reference ID"
                     value={formData.referenceNo}
-                    onChange={(e) => setFormData({...formData, referenceNo: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, referenceNo: e.target.value })}
                     className="border border-green-200 focus:border-green-400"
-                    required
                   />
                 </div>
               </div>
@@ -1138,7 +1814,7 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                   placeholder="Additional notes..."
                   rows={3}
                   value={formData.remarks}
-                  onChange={(e) => setFormData({...formData, remarks: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
                   className="border border-green-200 focus:border-green-400"
                 />
               </div>
@@ -1149,138 +1825,86 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
                 Cancel
               </Button>
               <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                Save Settlement
+                {editingRecord ? 'Update Settlement' : 'Save Settlement'}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* View Settlement Dialog - Premium Design matching Credit Sale Details style */}
+      {/* View Settlement Dialog - matches Add/Edit Settlement dialog layout */}
       {viewSettlementRecord && (
         <Dialog open={!!viewSettlementRecord} onOpenChange={() => setViewSettlementRecord(null)}>
-          <DialogContent 
-            className="flex flex-col overflow-hidden p-0 text-slate-900 rounded-2xl"
-            style={{ maxWidth: '550px', width: '90vw', maxHeight: '90vh' }}
-          >
-            {/* Modal Header */}
-            <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
-              <div className="flex items-center justify-between w-full">
-                <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-                  <CreditCard className="w-5 h-5 text-green-600" />
-                  Settlement Details
-                </DialogTitle>
-              </div>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Settlement Details - {mpdName}</DialogTitle>
             </DialogHeader>
 
-            {/* Modal Body */}
-            <div className="overflow-y-auto flex-1 p-5 space-y-4">
-              
-              {/* SECTION 1: SETTLEMENT INFORMATION */}
-              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Settlement &amp; Reference
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Record ID */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Voucher No</Label>
-                    <Input
-                      disabled
-                      value={viewSettlementRecord.id}
-                      className="h-9 text-xs bg-muted/60 font-semibold text-slate-800"
-                    />
-                  </div>
-                  {/* Payment Method */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Payment Method</Label>
-                    <Input
-                      disabled
-                      value={viewSettlementRecord.paymentMethod}
-                      className="h-9 text-xs bg-muted/60 font-semibold text-slate-800"
-                    />
-                  </div>
-                  {/* Date */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Date</Label>
-                    <Input
-                      disabled
-                      value={viewSettlementRecord.date}
-                      className="h-9 text-xs bg-muted/60 font-semibold text-slate-800"
-                    />
-                  </div>
-                  {/* Time */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Time</Label>
-                    <Input
-                      disabled
-                      value={viewSettlementRecord.time}
-                      className="h-9 text-xs bg-muted/60 font-semibold text-slate-800"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1 mt-2">
-                  {/* Reference Number */}
-                  <Label className="text-xs font-semibold text-slate-700">Reference Number</Label>
+            <div className="space-y-4 py-4">
+              {/* Date and Time */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Date</Label>
                   <Input
                     disabled
-                    value={viewSettlementRecord.referenceNo}
-                    className="h-9 text-xs bg-muted/60 font-mono font-semibold text-slate-800"
+                    value={viewSettlementRecord.date}
+                    className="bg-background"
                   />
                 </div>
-              </div>
-
-              {/* SECTION 2: TRANSACTION VALUE & ASSIGNMENT */}
-              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Transaction &amp; Assignment
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Amount */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">Amount Settled (₹)</Label>
-                    <Input
-                      disabled
-                      value={formatCurrency(viewSettlementRecord.amount)}
-                      className="h-9 text-xs bg-green-50 font-bold text-green-700 border-green-200"
-                    />
-                  </div>
-                  {/* MPD Name */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold text-slate-700">MPD (Dispenser)</Label>
-                    <Input
-                      disabled
-                      value={mpdName}
-                      className="h-9 text-xs bg-muted/60 font-semibold text-slate-800"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* SECTION 3: ADDITIONAL DETAILS */}
-              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Additional Details
-                </h3>
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-slate-700">Remarks</Label>
-                  <Textarea
+                <div className="space-y-2">
+                  <Label>Time</Label>
+                  <Input
                     disabled
-                    value={viewSettlementRecord.remarks || 'No remarks provided.'}
-                    rows={2}
-                    className="text-xs bg-muted/60 font-semibold text-slate-800 resize-none"
+                    value={viewSettlementRecord.time}
+                    className="bg-background"
                   />
                 </div>
+              </div>
+
+              {/* Payment Method */}
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <Input
+                  disabled
+                  value={viewSettlementRecord.paymentMethod}
+                  className="bg-background"
+                />
+              </div>
+
+              {/* Amount and Reference Number */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Amount (₹)</Label>
+                  <Input
+                    disabled
+                    value={formatCurrency(viewSettlementRecord.amount)}
+                    className="bg-background font-semibold text-green-700"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Reference Number</Label>
+                  <Input
+                    disabled
+                    value={viewSettlementRecord.referenceNo || '—'}
+                    className="bg-background"
+                  />
+                </div>
+              </div>
+
+              {/* Remarks */}
+              <div className="space-y-2">
+                <Label>Remarks</Label>
+                <Textarea
+                  disabled
+                  value={viewSettlementRecord.remarks || 'No remarks provided.'}
+                  rows={3}
+                  className="bg-background resize-none"
+                />
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <DialogFooter className="px-6 py-4 border-t border-border shrink-0 flex items-center justify-end gap-2 bg-slate-50">
-              <Button 
-                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg px-5 h-9" 
-                onClick={() => setViewSettlementRecord(null)}
-              >
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewSettlementRecord(null)}>
                 Close
               </Button>
             </DialogFooter>
@@ -1292,19 +1916,87 @@ function SettlementsTab({ mpdName }: { mpdName: string }) {
 }
 
 
-function EmployeeDepositsTab({ mpdName }: { mpdName: string }) {
+function EmployeeDepositsTab({
+  mpdName,
+  selectedDate,
+  selectedShift,
+  scopeMode,
+  onTotalChange
+}: {
+  mpdName: string;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
+  onTotalChange?: (total: number) => void;
+}) {
   return (
     <CashCollection
       isEmbedded={true}
       prefilledMpdName={mpdName}
+      selectedDate={selectedDate}
+      selectedShift={selectedShift}
+      scopeMode={scopeMode}
+      onTotalChange={onTotalChange}
     />
   );
 }
 
 
-function MPDTabContent({ mpdName, mpd }: { mpdName: string; mpd?: MPD }) {
+function MPDTabContent({
+  mpdName,
+  mpd,
+  selectedDate,
+  activeSubTab = subTabs[0],
+  onSubTabChange,
+  rateMaster = {},
+  activeShiftName = 'Shift 1'
+}: {
+  mpdName: string;
+  mpd?: MPD;
+  selectedDate?: string;
+  activeSubTab?: string;
+  onSubTabChange?: (tab: string) => void;
+  rateMaster?: Record<string, number>;
+  activeShiftName?: string;
+}) {
   const [resolvedMpdName, setResolvedMpdName] = React.useState(mpd?.mpdName || mpdName);
-  const [meterReadingTotalSales, setMeterReadingTotalSales] = React.useState(145250.75);
+  const [scopeMode, setScopeMode] = React.useState<'shift' | 'day' | 'overall'>('overall');
+  const [meterReadingTotalSales, setMeterReadingTotalSales] = React.useState(0);
+  const [creditSalesTotalAmount, setCreditSalesTotalAmount] = React.useState(0);
+  const [ownUseTotalAmount, setOwnUseTotalAmount] = React.useState(0);
+  const [settlementTotalAmount, setSettlementTotalAmount] = React.useState(0);
+  const [employeeDepositsTotalAmount, setEmployeeDepositsTotalAmount] = React.useState(0);
+  const [fuelSalesSummary, setFuelSalesSummary] = React.useState<Array<{ product: string; units: number; rate: number; amount: number }>>([]);
+  const [currentShift, setCurrentShift] = React.useState(activeShiftName);
+
+  // Reset all totals when the MPD changes so Summary never shows stale data
+  React.useEffect(() => {
+    setMeterReadingTotalSales(0);
+    setCreditSalesTotalAmount(0);
+    setOwnUseTotalAmount(0);
+    setSettlementTotalAmount(0);
+    setEmployeeDepositsTotalAmount(0);
+    setFuelSalesSummary([]);
+  }, [mpdName, mpd?.id]);
+
+  React.useEffect(() => {
+    if (activeShiftName) {
+      setCurrentShift(activeShiftName);
+    }
+  }, [activeShiftName]);
+
+  const [activeTab, setActiveTab] = React.useState(activeSubTab);
+
+  React.useEffect(() => {
+    setActiveTab(activeSubTab);
+  }, [activeSubTab]);
+
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    if (onSubTabChange) {
+      onSubTabChange(newTab);
+    }
+  };
 
   React.useEffect(() => {
     if (mpd) {
@@ -1332,33 +2024,12 @@ function MPDTabContent({ mpdName, mpd }: { mpdName: string; mpd?: MPD }) {
     loadMpdName();
   }, [mpdName, mpd]);
 
-  const [activeTab, setActiveTab] = React.useState(subTabs[0]);
-
-  // Calculate totals for each tab
-  const getMeterReadingTotal = () => {
-    return meterReadingTotalSales;
-  };
-
-  const getCreditSalesTotal = () => {
-    // Sum of all credit sales for this MPD
-    return 75000.00;
-  };
-
-  const getOwnUseTotal = () => {
-    // This would typically be calculated based on quantity * rate
-    // For now, returning a sample value
-    return 5487.50;
-  };
-
-  const getSettlementsTotal = () => {
-    // Total of all settlements
-    return 62000.00;
-  };
-
-  const getEmployeeDepositsTotal = () => {
-    // Total of all employee deposits
-    return 15000.00;
-  };
+  // Calculate totals for each tab dynamically per MPD
+  const getMeterReadingTotal = () => meterReadingTotalSales;
+  const getCreditSalesTotal = () => creditSalesTotalAmount;
+  const getOwnUseTotal = () => ownUseTotalAmount;
+  const getSettlementsTotal = () => settlementTotalAmount;
+  const getEmployeeDepositsTotal = () => employeeDepositsTotalAmount;
 
   const formatIndianCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -1422,21 +2093,67 @@ function MPDTabContent({ mpdName, mpd }: { mpdName: string; mpd?: MPD }) {
   };
 
   return (
-    <Tabs defaultValue={subTabs[0]} className="w-full" onValueChange={setActiveTab}>
+    <Tabs value={activeTab} className="w-full" onValueChange={handleTabChange}>
+      {/* Scope Mode Control Toggle Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3 px-2 pt-2 border-b pb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Subtab View Mode:</span>
+          <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setScopeMode('shift')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 ${scopeMode === 'shift'
+                  ? 'bg-primary text-primary-foreground shadow-sm font-semibold'
+                  : 'text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Shift ({currentShift || activeShiftName})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScopeMode('day')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 ${scopeMode === 'day'
+                  ? 'bg-primary text-primary-foreground shadow-sm font-semibold'
+                  : 'text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Daily ({selectedDate ? formatDateToDMY(selectedDate) : 'Today'})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScopeMode('overall')}
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 ${scopeMode === 'overall'
+                  ? 'bg-primary text-primary-foreground shadow-sm font-semibold'
+                  : 'text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Cumulative Totalizer</span>
+            </button>
+          </div>
+        </div>
+        <div className="text-xs text-muted-foreground font-medium">
+          {scopeMode === 'shift' && `Showing shift reconciliation scope (${currentShift || activeShiftName})`}
+          {scopeMode === 'day' && `Showing daily sales totals for ${selectedDate ? formatDateToDMY(selectedDate) : 'selected date'}`}
+          {scopeMode === 'overall' && 'Showing overall lifetime cumulative totalizer values'}
+        </div>
+      </div>
+
       {/* Subtabs - Underline Style */}
       <TabsList className="w-full justify-start bg-transparent h-auto p-0 border-b rounded-none gap-6 px-2">
         {subTabs.map((tab) => (
-          <TabsTrigger 
-            key={tab} 
+          <TabsTrigger
+            key={tab}
             value={tab}
             className="relative pb-3 pt-2 px-1 bg-transparent border-0 rounded-none data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-colors data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary data-[state=active]:after:rounded-full"
           >
             <div className="flex flex-col items-start gap-1">
               <span>{tab}</span>
               {tab !== 'Summary' && (
-                <span className={`text-xs font-normal ${
-                  activeTab === tab ? 'text-primary/80' : 'text-muted-foreground/70'
-                }`}>
+                <span className={`text-xs font-normal ${activeTab === tab ? 'text-primary/80' : 'text-muted-foreground/70'
+                  }`}>
                   {formatIndianCurrency(getTotalAmount(tab))}
                 </span>
               )}
@@ -1445,157 +2162,680 @@ function MPDTabContent({ mpdName, mpd }: { mpdName: string; mpd?: MPD }) {
         ))}
       </TabsList>
 
-      <TabsContent value="Meter Reading" className="mt-6">
-        <MeterReadingTable 
-          mpdName={resolvedMpdName} 
-          mpd={mpd} 
-          onTotalSalesChange={setMeterReadingTotalSales} 
+      <TabsContent value="Meter Reading" className="mt-6" forceMount hidden={activeTab !== 'Meter Reading'}>
+        <MeterReadingTable
+          mpdName={resolvedMpdName}
+          mpd={mpd}
+          selectedDate={selectedDate}
+          scopeMode={scopeMode}
+          rateMaster={rateMaster}
+          onTotalSalesChange={setMeterReadingTotalSales}
+          onFuelSalesSummaryChange={setFuelSalesSummary}
+          onShiftChange={setCurrentShift}
         />
       </TabsContent>
 
-      <TabsContent value="Credit Sales" className="mt-6">
-        <CreditSalesTab mpdName={resolvedMpdName} />
+      <TabsContent value="Credit Sales" className="mt-6" forceMount hidden={activeTab !== 'Credit Sales'}>
+        <CreditSalesTab
+          mpdName={resolvedMpdName}
+          selectedDate={selectedDate}
+          selectedShift={currentShift || activeShiftName}
+          scopeMode={scopeMode}
+          onTotalChange={setCreditSalesTotalAmount}
+        />
       </TabsContent>
 
-      <TabsContent value="Own Use" className="mt-6">
-        <OwnUseTab mpdName={resolvedMpdName} />
+      <TabsContent value="Own Use" className="mt-6" forceMount hidden={activeTab !== 'Own Use'}>
+        <OwnUseTab
+          mpdName={resolvedMpdName}
+          selectedDate={selectedDate}
+          selectedShift={currentShift || activeShiftName}
+          scopeMode={scopeMode}
+          onTotalChange={setOwnUseTotalAmount}
+        />
       </TabsContent>
 
-      <TabsContent value="Settlements" className="mt-6">
-        <SettlementsTab mpdName={resolvedMpdName} />
+      <TabsContent value="Settlements" className="mt-6" forceMount hidden={activeTab !== 'Settlements'}>
+        <SettlementsTab
+          mpdName={resolvedMpdName}
+          selectedDate={selectedDate}
+          selectedShift={currentShift || activeShiftName}
+          scopeMode={scopeMode}
+          onTotalChange={setSettlementTotalAmount}
+        />
       </TabsContent>
 
-      <TabsContent value="Employee Deposits" className="mt-6">
-        <EmployeeDepositsTab mpdName={resolvedMpdName} />
+      <TabsContent value="Employee Deposits" className="mt-6" forceMount hidden={activeTab !== 'Employee Deposits'}>
+        <EmployeeDepositsTab
+          mpdName={resolvedMpdName}
+          selectedDate={selectedDate}
+          selectedShift={currentShift || activeShiftName}
+          scopeMode={scopeMode}
+          onTotalChange={setEmployeeDepositsTotalAmount}
+        />
       </TabsContent>
 
-      <TabsContent value="Summary" className="mt-6">
-        {(() => {
-          const [employeeShortage, setEmployeeShortage] = React.useState('0');
-          const [roundUp, setRoundUp] = React.useState('0');
-
-          const productWise = [
-            { product: 'Petrol', units: 112.50, rate: 102.50 },
-            { product: 'Diesel', units: 198.75, rate: 89.75 },
-          ];
-          const meterReadingTotal = getMeterReadingTotal();
-          const creditSalesTotal = getCreditSalesTotal();
-          const ownUseTotal = getOwnUseTotal();
-          const settlementsTotal = getSettlementsTotal();
-          const employeeDepositsTotal = getEmployeeDepositsTotal();
-
-          const shortageVal = parseFloat(employeeShortage || '0') || 0;
-          const roundUpVal = parseFloat(roundUp || '0') || 0;
-          const balance = meterReadingTotal - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal - shortageVal + roundUpVal;
-
-          return (
-            <div className="space-y-5">
-              <div className="flex items-center justify-between pb-2 border-b">
-                <h3 className="text-lg font-bold text-foreground">Summary - {resolvedMpdName}</h3>
-              </div>
-
-              {/* Meter Reading - Product Wise */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="px-4 py-3 bg-blue-50 border-b flex items-center justify-between">
-                  <h3 className="font-semibold text-blue-800">Meter Reading Sales</h3>
-                  <span className="text-sm font-semibold text-blue-700">{formatIndianCurrency(meterReadingTotal)}</span>
-                </div>
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-muted/40 border-b text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="px-4 py-2 text-left">Product</th>
-                      <th className="px-4 py-2 text-right">Quantity (L)</th>
-                      <th className="px-4 py-2 text-right">Rate (₹/L)</th>
-                      <th className="px-4 py-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {productWise.map((row) => (
-                      <tr key={row.product} className="border-b last:border-0">
-                        <td className="px-4 py-2.5 text-sm font-medium">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${row.product === 'Petrol' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
-                            {row.product}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-sm text-right">{row.units.toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-sm text-right">₹{row.rate.toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-sm text-right font-medium">{formatIndianCurrency(row.units * row.rate)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Deductions */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="px-4 py-3 bg-muted/40 border-b">
-                  <h3 className="font-semibold text-muted-foreground">Deductions</h3>
-                </div>
-                <div className="divide-y">
-                  {[
-                    { label: 'Credit Sales', amount: creditSalesTotal, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-                    { label: 'Own Use', amount: ownUseTotal, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-                    { label: 'Settlements', amount: settlementsTotal, color: 'text-green-600', bg: 'bg-green-50' },
-                    { label: 'Employee Deposits', amount: employeeDepositsTotal, color: 'text-purple-600', bg: 'bg-purple-50' },
-                  ].map(({ label, amount, color, bg }) => (
-                    <div key={label} className="flex items-center justify-between px-4 py-3">
-                      <span className="text-sm text-muted-foreground">Less: {label}</span>
-                      <span className={`text-sm font-medium ${color}`}>− {formatIndianCurrency(amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reconciliation Adjustments */}
-              <div className="p-5 border border-slate-200 rounded-xl bg-card space-y-4">
-                <h4 className="text-xs font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                  Reconciliation Adjustments
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mpd-emp-shortage" className="text-xs text-slate-500 font-medium">
-                      Employee Shortage (₹)
-                    </Label>
-                    <Input
-                      id="mpd-emp-shortage"
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={employeeShortage}
-                      onChange={(e) => setEmployeeShortage(e.target.value)}
-                      className="h-10 text-sm font-semibold rounded-lg border-amber-200 focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mpd-round-up" className="text-xs text-slate-500 font-medium">
-                      Round Up (₹)
-                    </Label>
-                    <Input
-                      id="mpd-round-up"
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={roundUp}
-                      onChange={(e) => setRoundUp(e.target.value)}
-                      className="h-10 text-sm font-semibold rounded-lg border-blue-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Balance */}
-              <div className={`flex items-center justify-between px-5 py-4 rounded-lg border-2 ${balance >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-red-50 border-red-300'}`}>
-                <span className="font-semibold text-base">Balance Amount - {resolvedMpdName}</span>
-                <span className={`text-xl font-bold ${balance >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {formatIndianCurrency(balance)}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
+      <TabsContent value="Summary" className="mt-6" forceMount hidden={activeTab !== 'Summary'}>
+        <MPDSummaryTab
+          resolvedMpdName={resolvedMpdName}
+          mpd={mpd}
+          selectedDate={selectedDate}
+          selectedShift={currentShift || activeShiftName}
+          productWiseSales={fuelSalesSummary}
+          rateMaster={rateMaster}
+          meterReadingTotal={getMeterReadingTotal()}
+          creditSalesTotal={getCreditSalesTotal()}
+          ownUseTotal={getOwnUseTotal()}
+          settlementsTotal={getSettlementsTotal()}
+          employeeDepositsTotal={getEmployeeDepositsTotal()}
+        />
       </TabsContent>
     </Tabs>
+  );
+}
+
+interface MPDSummaryTabProps {
+  resolvedMpdName: string;
+  mpd?: MPD;
+  selectedDate?: string;
+  selectedShift?: string;
+  meterReadingTotal: number;
+  creditSalesTotal: number;
+  ownUseTotal: number;
+  settlementsTotal: number;
+  employeeDepositsTotal: number;
+  productWiseSales?: Array<{ product: string; units: number; rate: number; amount: number }>;
+  rateMaster?: Record<string, number>;
+}
+
+function MPDSummaryTab({
+  resolvedMpdName,
+  mpd,
+  selectedDate,
+  selectedShift,
+  meterReadingTotal,
+  creditSalesTotal,
+  ownUseTotal,
+  settlementsTotal,
+  employeeDepositsTotal,
+  productWiseSales = [],
+  rateMaster = {}
+}: MPDSummaryTabProps) {
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [loadingEmps, setLoadingEmps] = React.useState(false);
+  const [assignedDutyStaff, setAssignedDutyStaff] = React.useState<Array<{ id: string; name: string; nozzleName?: string }>>([]);
+  const [summaryViewMode, setSummaryViewMode] = React.useState<'shift' | 'cumulative'>('shift');
+
+  const [employeeShortage, setEmployeeShortage] = React.useState('0');
+  const [shortageItems, setShortageItems] = React.useState<Array<{
+    employeeId: string;
+    employeeName: string;
+    shortageAction: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery';
+    shortageReason: string;
+    amount: string;
+  }>>([]);
+
+  const [selectedEmployeeId, setSelectedEmployeeId] = React.useState('');
+  const [shortageAction, setShortageAction] = React.useState<'Salary Deduction' | 'Station Expense' | 'Cash Recovery'>('Salary Deduction');
+  const [shortageReason, setShortageReason] = React.useState('');
+  const [roundUp, setRoundUp] = React.useState('0');
+  const [savingReconciliation, setSavingReconciliation] = React.useState(false);
+
+  const targetDate = selectedDate || new Date().toISOString().slice(0, 10);
+  const targetShift = selectedShift || 'Shift 1';
+
+  // Load all active employees
+  React.useEffect(() => {
+    let isMounted = true;
+    setLoadingEmps(true);
+    fetchEmployees({ size: 1000, status: 'Active' })
+      .then((res) => {
+        if (isMounted && res.content) {
+          setEmployees(res.content);
+        }
+      })
+      .catch((err) => console.error('Failed to load active employees for shortage link:', err))
+      .finally(() => {
+        if (isMounted) setLoadingEmps(false);
+      });
+    return () => { isMounted = false; };
+  }, []);
+
+  // Fetch Duty Assignments for targetDate + targetShift + MPD
+  React.useEffect(() => {
+    let isMounted = true;
+    if (targetDate && targetShift) {
+      const derivedShiftId = (() => {
+        const match = targetShift.match(/\b([1-9])\b/);
+        if (match) return match[1];
+        const norm = targetShift.toLowerCase();
+        if (norm.includes('morning')) return '1';
+        if (norm.includes('evening') || norm.includes('afternoon')) return '2';
+        if (norm.includes('night')) return '3';
+        return '1';
+      })();
+
+      fetchEmployeeAssignments(targetDate, derivedShiftId)
+        .then(assignments => {
+          if (isMounted && assignments && assignments.length > 0) {
+            const mpdStaffList: Array<{ id: string; name: string; nozzleName?: string }> = [];
+            assignments.forEach(a => {
+              const matchedMpd = a.nozzle?.mpd?.name || (mpd ? mpd.name : '');
+              if (matchedMpd === resolvedMpdName && a.employee) {
+                if (!mpdStaffList.some(s => s.id === String(a.employee?.id))) {
+                  mpdStaffList.push({
+                    id: String(a.employee.id),
+                    name: a.employee.name,
+                    nozzleName: a.nozzle?.nozzleName
+                  });
+                }
+              }
+            });
+            setAssignedDutyStaff(mpdStaffList);
+          } else if (isMounted) {
+            setAssignedDutyStaff([]);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch employee assignments for MPD summary duty link:', err);
+          if (isMounted) setAssignedDutyStaff([]);
+        });
+    }
+    return () => { isMounted = false; };
+  }, [targetDate, targetShift, resolvedMpdName, mpd]);
+
+  // Fetch existing saved reconciliation summary from backend for Date + Shift + MPD
+  React.useEffect(() => {
+    let isMounted = true;
+    if (targetDate && targetShift && resolvedMpdName) {
+      fetchExistingMpdReconciliation(targetDate, targetShift, resolvedMpdName)
+        .then(rec => {
+          if (isMounted) {
+            if (rec) {
+              setEmployeeShortage(rec.employeeShortage != null ? String(rec.employeeShortage) : '0');
+              setSelectedEmployeeId(rec.employeeId != null ? String(rec.employeeId) : '');
+              setShortageAction((rec.shortageAction as any) || 'Salary Deduction');
+              setShortageReason(rec.shortageReason || '');
+              setRoundUp(rec.roundUp != null ? String(rec.roundUp) : '0');
+
+              if (rec.items && rec.items.length > 0) {
+                setShortageItems(rec.items.map(item => ({
+                  employeeId: item.employeeId != null ? String(item.employeeId) : '',
+                  employeeName: item.employeeName || '',
+                  shortageAction: (item.shortageAction as any) || 'Salary Deduction',
+                  shortageReason: item.shortageReason || '',
+                  amount: item.amount != null ? String(item.amount) : '0'
+                })));
+              } else if (rec.employeeShortage && rec.employeeShortage > 0 && rec.employeeId) {
+                setShortageItems([{
+                  employeeId: String(rec.employeeId),
+                  employeeName: rec.employeeName || '',
+                  shortageAction: (rec.shortageAction as any) || 'Salary Deduction',
+                  shortageReason: rec.shortageReason || '',
+                  amount: String(rec.employeeShortage)
+                }]);
+              } else {
+                setShortageItems([]);
+              }
+            } else {
+              setEmployeeShortage('0');
+              setSelectedEmployeeId('');
+              setShortageAction('Salary Deduction');
+              setShortageReason('');
+              setRoundUp('0');
+              setShortageItems([]);
+            }
+          }
+        })
+        .catch(err => console.error('Failed to load existing MPD reconciliation:', err));
+    }
+    return () => { isMounted = false; };
+  }, [targetDate, targetShift, resolvedMpdName]);
+
+  const itemsSum = React.useMemo(() => {
+    return shortageItems.reduce((sum, item) => sum + (parseFloat(item.amount || '0') || 0), 0);
+  }, [shortageItems]);
+
+  const shortageVal = shortageItems.length > 0 ? itemsSum : (parseFloat(employeeShortage || '0') || 0);
+  const roundUpVal = parseFloat(roundUp || '0') || 0;
+  const balance = meterReadingTotal - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal - shortageVal + roundUpVal;
+
+  const handleAddShortageItem = () => {
+    const defaultEmp = assignedDutyStaff.length > 0 ? assignedDutyStaff[0] : (employees.length > 0 ? employees[0] : null);
+    setShortageItems(prev => [
+      ...prev,
+      {
+        employeeId: defaultEmp ? String(defaultEmp.id) : '',
+        employeeName: defaultEmp ? defaultEmp.name : '',
+        shortageAction: 'Salary Deduction',
+        shortageReason: '',
+        amount: '0'
+      }
+    ]);
+  };
+
+  const handleRemoveShortageItem = (index: number) => {
+    setShortageItems(prev => {
+      const updated = prev.filter((_, i) => i !== index);
+      if (updated.length === 0) {
+        setEmployeeShortage('0');
+        setSelectedEmployeeId('');
+        setShortageReason('');
+      }
+      return updated;
+    });
+  };
+
+  const handleUpdateShortageItem = (index: number, field: string, value: any) => {
+    setShortageItems(prev => {
+      const copy = [...prev];
+      const target = { ...copy[index] };
+      if (field === 'employeeId') {
+        target.employeeId = value;
+        const matchedEmp = employees.find(e => String(e.id) === String(value));
+        if (matchedEmp) target.employeeName = matchedEmp.name;
+      } else if (field === 'shortageAction') {
+        target.shortageAction = value;
+      } else if (field === 'shortageReason') {
+        target.shortageReason = value;
+      } else if (field === 'amount') {
+        target.amount = value;
+      }
+      copy[index] = target;
+      return copy;
+    });
+  };
+
+  // Dynamically map fuel products connected to this specific MPD only (Fuel only)
+  const displayProductWise = React.useMemo(() => {
+    const connectedProducts: string[] = [];
+    if (mpd && mpd.nozzles && mpd.nozzles.length > 0) {
+      mpd.nozzles.forEach((n: any) => {
+        const ft = n.fuelType || 'Petrol';
+        if (!connectedProducts.includes(ft)) {
+          connectedProducts.push(ft);
+        }
+      });
+    } else {
+      connectedProducts.push('Petrol', 'Diesel');
+    }
+
+    const result: Array<{ product: string; units: number; rate: number; amount: number }> = [];
+
+    connectedProducts.forEach(prod => {
+      const match = productWiseSales.find(p => p.product.toLowerCase() === prod.toLowerCase());
+      if (match && (match.units > 0 || match.amount > 0)) {
+        result.push(match);
+      } else {
+        const r = getFuelRate(prod, rateMaster);
+        result.push({
+          product: prod,
+          units: 0.00,
+          rate: r,
+          amount: 0.00
+        });
+      }
+    });
+
+    return result;
+  }, [mpd, productWiseSales, rateMaster]);
+
+  const handleSaveAttribution = async () => {
+    if (shortageVal > 0 && shortageItems.length === 0 && !selectedEmployeeId) {
+      toast.error('Please select the employee responsible for the shortage.');
+      return;
+    }
+
+    try {
+      setSavingReconciliation(true);
+
+      const itemsPayload: MpdReconciliationItem[] = shortageItems.map(item => ({
+        employeeId: item.employeeId ? parseInt(item.employeeId, 10) : undefined,
+        employeeName: item.employeeName || employees.find(e => String(e.id) === item.employeeId)?.name,
+        shortageAction: item.shortageAction,
+        shortageReason: item.shortageReason,
+        amount: parseFloat(item.amount || '0') || 0
+      }));
+
+      const primaryEmp = shortageItems.length > 0
+        ? employees.find(e => String(e.id) === shortageItems[0]?.employeeId)
+        : (selectedEmployeeId ? employees.find(e => String(e.id) === selectedEmployeeId) : undefined);
+
+      const payload: MpdReconciliationRecord = {
+        date: targetDate,
+        shiftName: targetShift,
+        mpdName: resolvedMpdName,
+        employeeShortage: shortageItems.length > 0 ? shortageVal : (parseFloat(employeeShortage || '0') || 0),
+        employeeId: primaryEmp ? parseInt(String(primaryEmp.id), 10) : undefined,
+        employeeName: primaryEmp?.name || undefined,
+        shortageAction: shortageItems.length > 0 ? shortageItems[0]?.shortageAction : shortageAction,
+        shortageReason: shortageItems.length > 0 ? shortageItems[0]?.shortageReason : shortageReason,
+        items: itemsPayload,
+        roundUp: roundUpVal
+      };
+
+      await saveMpdReconciliationApi(payload);
+
+      toast.success(`Reconciliation summary saved for ${resolvedMpdName} (${targetShift})!`);
+    } catch (err: any) {
+      console.error('Failed to save reconciliation summary:', err);
+      toast.error(err?.message || 'Failed to save reconciliation summary');
+    } finally {
+      setSavingReconciliation(false);
+    }
+  };
+
+  const getProductBadgeStyle = (prodName: string) => {
+    const norm = prodName.toLowerCase();
+    if (norm.includes('diesel')) return 'bg-orange-100 text-orange-800 border-orange-200';
+    if (norm.includes('petrol') || norm.includes('power') || norm.includes('ms') || norm.includes('speed')) return 'bg-green-100 text-green-800 border-green-200';
+    return 'bg-sky-100 text-sky-800 border-sky-200';
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Header with View Mode Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+            Summary - {resolvedMpdName}
+            <Badge variant="outline" className="text-[11px] bg-primary/10 text-primary border-primary/20">
+              {targetDate} ({targetShift})
+            </Badge>
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Shift closing balance and employee shortage attribution.
+          </p>
+        </div>
+
+        {/* View Mode Switcher */}
+        <div className="flex items-center gap-1 p-1 bg-muted/60 rounded-lg border text-xs">
+          <button
+            type="button"
+            onClick={() => setSummaryViewMode('shift')}
+            className={`px-3 py-1 rounded-md font-medium transition-all ${summaryViewMode === 'shift'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            Shift Reconciliation View
+          </button>
+          <button
+            type="button"
+            onClick={() => setSummaryViewMode('cumulative')}
+            className={`px-3 py-1 rounded-md font-medium transition-all ${summaryViewMode === 'cumulative'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            Cumulative Totalizer View
+          </button>
+        </div>
+      </div>
+
+      {/* Cumulative View Explanatory Banner */}
+      {summaryViewMode === 'cumulative' && (
+        <div className="p-3.5 bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-xl flex items-start gap-3">
+          <Droplet className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <span className="font-semibold text-blue-900 dark:text-blue-200">Cumulative Totalizer Metric Notice:</span>
+            <p className="text-blue-800/90 dark:text-blue-300">
+              Dispenser totalizers maintain continuous cumulative lifetime volume counters. Net Sales Quantity delivered during this shift is calculated as:
+              <span className="font-mono font-bold text-blue-950 dark:text-blue-100 ml-1">
+                Net Shift Volume = Closing Totalizer − Opening Totalizer − Testing Quantity
+              </span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Meter Reading - Product Wise */}
+      <div className="border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-blue-50 border-b flex items-center justify-between">
+          <h3 className="font-semibold text-blue-800">Meter Reading Sales</h3>
+          <span className="text-sm font-semibold text-blue-700">{formatIndianCurrency(meterReadingTotal)}</span>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="bg-muted/40 border-b text-xs text-muted-foreground uppercase tracking-wide">
+              <th className="px-4 py-2 text-left">Product</th>
+              <th className="px-4 py-2 text-right">Quantity (L)</th>
+              <th className="px-4 py-2 text-right">Rate (₹/L)</th>
+              <th className="px-4 py-2 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayProductWise.map((row) => (
+              <tr key={row.product} className="border-b last:border-0">
+                <td className="px-4 py-2.5 text-sm font-medium">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getProductBadgeStyle(row.product)}`}>
+                    {row.product}
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 text-sm text-right font-mono">{row.units.toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-mono">₹{row.rate.toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-medium font-mono">{formatIndianCurrency(row.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Deductions */}
+      <div className="border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-muted/40 border-b">
+          <h3 className="font-semibold text-muted-foreground">Deductions</h3>
+        </div>
+        <div className="divide-y">
+          {[
+            { label: 'Credit Sales', amount: creditSalesTotal, color: 'text-indigo-600' },
+            { label: 'Own Use', amount: ownUseTotal, color: 'text-cyan-600' },
+            { label: 'Settlements', amount: settlementsTotal, color: 'text-green-600' },
+            { label: 'Employee Deposits', amount: employeeDepositsTotal, color: 'text-purple-600' },
+            ...(shortageVal > 0 ? [{ label: 'Employee Shortage', amount: shortageVal, color: 'text-amber-600' }] : []),
+          ].map(({ label, amount, color }) => (
+            <div key={label} className="flex items-center justify-between px-4 py-3">
+              <span className="text-sm text-muted-foreground">Less: {label}</span>
+              <span className={`text-sm font-medium ${color}`}>− {formatIndianCurrency(amount)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Employee Shortages & Adjustments Section */}
+      <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg bg-card space-y-3 shadow-sm">
+        <div className="flex items-center justify-between pb-2 border-b">
+          <h4 className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-300 tracking-wide flex items-center gap-1.5">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
+            Employee Shortages &amp; Adjustments
+          </h4>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleAddShortageItem}
+            className="h-7 text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-medium gap-1 shrink-0"
+          >
+            <Plus className="w-3 h-3 text-amber-600" /> Add Shortage Entry
+          </Button>
+        </div>
+
+        {/* Multi-Item Shortage Breakdown List */}
+        {shortageItems.length > 0 ? (
+          <div className="space-y-2 p-3 bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200 rounded-lg">
+            <div className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center justify-between">
+              <span>Itemized Employee Shortages:</span>
+              <span className="text-amber-800 dark:text-amber-200 font-mono font-bold">Total: ₹{shortageVal.toFixed(2)}</span>
+            </div>
+
+            <div className="space-y-2">
+              {shortageItems.map((item, idx) => (
+                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2 bg-background border rounded-md items-end text-xs">
+                  {/* Staff Select */}
+                  <div className="sm:col-span-4 space-y-1">
+                    <Label className="text-[11px] text-muted-foreground font-medium">Staff Name</Label>
+                    <Select
+                      value={item.employeeId}
+                      onValueChange={(val) => handleUpdateShortageItem(idx, 'employeeId', val)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select Staff" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {/* Group Assigned Duty Staff First */}
+                        {assignedDutyStaff.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border-b uppercase">
+                            Assigned Shift Staff
+                          </div>
+                        )}
+                        {assignedDutyStaff.map(s => (
+                          <SelectItem key={`assigned-${s.id}`} value={s.id} className="font-semibold text-indigo-900">
+                            ⭐ {s.name} {s.nozzleName ? `(${s.nozzleName})` : ''}
+                          </SelectItem>
+                        ))}
+                        <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground bg-muted border-b border-t uppercase">
+                          All Active Employees
+                        </div>
+                        {employees.map(emp => (
+                          <SelectItem key={emp.id} value={String(emp.id)}>
+                            {emp.name} ({emp.employeeCode || `EMP-${emp.id}`})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Recovery Action */}
+                  <div className="sm:col-span-3 space-y-1">
+                    <Label className="text-[11px] text-muted-foreground font-medium">Recovery Method</Label>
+                    <Select
+                      value={item.shortageAction}
+                      onValueChange={(val: any) => handleUpdateShortageItem(idx, 'shortageAction', val)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Salary Deduction">Salary Deduction (Payroll)</SelectItem>
+                        <SelectItem value="Station Expense">Station Expense (Write-off)</SelectItem>
+                        <SelectItem value="Cash Recovery">Immediate Cash Recovery</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Reason */}
+                  <div className="sm:col-span-3 space-y-1">
+                    <Label className="text-[11px] text-muted-foreground font-medium">Reason / Remarks</Label>
+                    <Input
+                      placeholder="Reason..."
+                      value={item.shortageReason}
+                      onChange={(e) => handleUpdateShortageItem(idx, 'shortageReason', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  {/* Amount & Delete */}
+                  <div className="sm:col-span-2 space-y-1">
+                    <Label className="text-[11px] text-muted-foreground font-medium">Amount (₹)</Label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={item.amount}
+                        onChange={(e) => handleUpdateShortageItem(idx, 'amount', e.target.value)}
+                        className="h-8 text-xs font-semibold font-mono text-right border-amber-200"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleRemoveShortageItem(idx)}
+                        className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-900/30 border rounded-lg">
+            <div className="space-y-1">
+              <Label htmlFor="mpd-emp-shortage" className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                Employee Shortage (₹)
+              </Label>
+              <Input
+                id="mpd-emp-shortage"
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={employeeShortage}
+                onChange={(e) => setEmployeeShortage(e.target.value)}
+                className="h-8 text-xs font-semibold font-mono rounded-md border-amber-200 focus:border-amber-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mpd-round-up" className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                Shift Round Off (₹)
+              </Label>
+              <Input
+                id="mpd-round-up"
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={roundUp}
+                onChange={(e) => setRoundUp(e.target.value)}
+                className="h-8 text-xs font-semibold font-mono rounded-md border-blue-200 focus:border-blue-400 text-right"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Round up adjustment field when itemized entries exist */}
+        {shortageItems.length > 0 && (
+          <div className="pt-2 border-t flex items-center justify-between gap-2">
+            <Label htmlFor="mpd-round-up-itemized" className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+              Shift Round Off (₹)
+            </Label>
+            <Input
+              id="mpd-round-up-itemized"
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={roundUp}
+              onChange={(e) => setRoundUp(e.target.value)}
+              className="h-8 w-32 text-xs font-semibold font-mono rounded-md border-blue-200 focus:border-blue-400 text-right shrink-0"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Save Reconciliation Summary Bar (Clean Light Theme) */}
+      <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 border rounded-lg gap-3 text-xs">
+        <span className="text-muted-foreground">
+          Save reconciliation for <span className="font-semibold text-slate-700 dark:text-slate-300">{resolvedMpdName} ({targetShift})</span>
+        </span>
+        <Button
+          type="button"
+          disabled={savingReconciliation}
+          onClick={handleSaveAttribution}
+          className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 h-8 text-xs shrink-0 rounded-md shadow-xs"
+        >
+          {savingReconciliation ? 'Saving Reconciliation...' : 'Save Reconciliation'}
+        </Button>
+      </div>
+
+      {/* Balance */}
+      <div className={`flex items-center justify-between px-5 py-4 rounded-lg border-2 ${balance >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-red-50 border-red-300'}`}>
+        <span className="font-semibold text-base">Balance Amount - {resolvedMpdName}</span>
+        <span className={`text-xl font-bold ${balance >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+          {formatIndianCurrency(balance)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -1924,8 +3164,8 @@ function printOilInvoice(rec: OilSaleRecord) {
         <tr><td class="label">Total Discount</td><td class="value" style="color:#dc2626">- ${fmtINR(rec.totalDiscount)}</td></tr>
         <tr><td class="label">Taxable Value</td><td class="value">${fmtINR(rec.totalTaxableValue)}</td></tr>
         ${rec.isInterState
-          ? `<tr><td class="label">IGST</td><td class="value">${fmtINR(rec.totalIGST)}</td></tr>`
-          : `<tr><td class="label">CGST</td><td class="value">${fmtINR(rec.totalCGST)}</td></tr><tr><td class="label">SGST</td><td class="value">${fmtINR(rec.totalSGST)}</td></tr>`}
+      ? `<tr><td class="label">IGST</td><td class="value">${fmtINR(rec.totalIGST)}</td></tr>`
+      : `<tr><td class="label">CGST</td><td class="value">${fmtINR(rec.totalCGST)}</td></tr><tr><td class="label">SGST</td><td class="value">${fmtINR(rec.totalSGST)}</td></tr>`}
         <tr class="grand-total"><td class="label">Grand Total</td><td class="value">${fmtINR(rec.grandTotal)}</td></tr>
       </table>
     </div>
@@ -2339,9 +3579,9 @@ function OilSaleTab() {
                   {form.isInterState
                     ? <div className="flex justify-between py-1 border-b"><span className="text-muted-foreground">IGST</span><span>{fmtINR(totals.igst)}</span></div>
                     : <>
-                        <div className="flex justify-between py-1 border-b"><span className="text-muted-foreground">CGST</span><span>{fmtINR(totals.cgst)}</span></div>
-                        <div className="flex justify-between py-1 border-b"><span className="text-muted-foreground">SGST</span><span>{fmtINR(totals.sgst)}</span></div>
-                      </>}
+                      <div className="flex justify-between py-1 border-b"><span className="text-muted-foreground">CGST</span><span>{fmtINR(totals.cgst)}</span></div>
+                      <div className="flex justify-between py-1 border-b"><span className="text-muted-foreground">SGST</span><span>{fmtINR(totals.sgst)}</span></div>
+                    </>}
                   <div className="flex justify-between py-2 mt-1 bg-primary/10 px-3 rounded-lg border border-primary/20">
                     <span className="font-bold">Grand Total</span>
                     <span className="font-bold text-primary text-base">{fmtINR(totals.grand)}</span>
@@ -2597,21 +3837,81 @@ function OilSaleTab() {
 
 export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) {
   const [mpds, setMpds] = React.useState<MPD[]>([]);
+  const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [selectedDate, setSelectedDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [rateMaster, setRateMaster] = React.useState<Record<string, number>>({});
 
   React.useEffect(() => {
-    const loadMpds = async () => {
+    const loadMasterData = async () => {
       try {
-        const data = await fetchMpdsAll();
-        setMpds(data);
+        const [mpdData, shiftData] = await Promise.all([
+          fetchMpdsAll(),
+          fetchShiftsAll().catch(() => [])
+        ]);
+        setMpds(mpdData);
+        if (shiftData && shiftData.length > 0) {
+          setMasterShifts(shiftData);
+        }
       } catch (err) {
-        console.error('Failed to load MPDs:', err);
+        console.error('Failed to load master data:', err);
       } finally {
         setLoading(false);
       }
     };
-    loadMpds();
+    loadMasterData();
   }, []);
+
+  React.useEffect(() => {
+    const loadRates = async () => {
+      try {
+        const [ratesData, productsRes] = await Promise.all([
+          fetchLatestOrDateRates(selectedDate).catch(() => ({})),
+          fetchProducts({ category: 'Fuel', size: 1000 }).catch(() => ({ content: [] }))
+        ]);
+
+        const map: Record<string, number> = {};
+        const products = productsRes.content || [];
+
+        Object.entries(ratesData || {}).forEach(([prodId, val]) => {
+          map[prodId] = val;
+          const matchedProd = products.find(p => String(p.id) === String(prodId));
+          if (matchedProd && matchedProd.name) {
+            map[matchedProd.name] = val;
+            map[matchedProd.name.toLowerCase()] = val;
+          }
+        });
+
+        products.forEach(p => {
+          if (map[p.name] === undefined || map[p.name] === 0) {
+            const norm = p.name.toLowerCase();
+            if (norm.includes('diesel')) map[p.name] = 89.75;
+            else if (norm.includes('petrol') || norm.includes('power') || norm.includes('ms') || norm.includes('speed')) map[p.name] = 102.50;
+            else map[p.name] = 90.00;
+            map[String(p.id)] = map[p.name];
+          }
+        });
+
+        setRateMaster(map);
+      } catch (err) {
+        console.error('Failed to load rates for date:', selectedDate, err);
+      }
+    };
+    loadRates();
+  }, [selectedDate]);
+
+  const [activeSubTab, setActiveSubTab] = React.useState(() => {
+    return localStorage.getItem('fuel_sale_active_subtab') || 'Meter Reading';
+  });
+
+  const handleSubTabChange = (tab: string) => {
+    setActiveSubTab(tab);
+    localStorage.setItem('fuel_sale_active_subtab', tab);
+  };
+
+  const activeShiftName = React.useMemo(() => {
+    return getActiveShiftNameFromMaster(masterShifts);
+  }, [masterShifts]);
 
   const mainTabs = React.useMemo(() => {
     const tabs = [];
@@ -2653,15 +3953,22 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             Record shift-wise nozzle meter readings, credit sales, own usage, settlements, and shift reconciliations
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="px-3 py-1.5 text-xs font-normal gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-primary" />
-            {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-          </Badge>
-          <Badge variant="secondary" className="px-3 py-1.5 text-xs font-normal gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-primary" />
-            Active Shift: Shift 1
-          </Badge>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 bg-secondary/80 border rounded-lg shadow-sm h-9 hover:border-primary/40 transition-colors">
+            <Calendar className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Sales Date:</span>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="h-7 text-xs font-semibold border-0 bg-transparent p-0 w-28 focus-visible:ring-0 focus-visible:ring-offset-0 cursor-pointer text-foreground"
+            />
+          </div>
+          <div className="flex items-center gap-2 px-3.5 py-1.5 bg-secondary/80 border rounded-lg shadow-sm h-9">
+            <Clock className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Active Shift:</span>
+            <span className="text-xs font-semibold text-foreground">{activeShiftName}</span>
+          </div>
         </div>
       </div>
 
@@ -2670,14 +3977,14 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
         <Tabs defaultValue={defaultTab} className="w-full">
           {/* Main MPD Tabs Header Bar - Vertically Centered Segmented Control */}
           <div className="border-b bg-muted/20 px-4 py-3 flex items-center justify-between gap-4">
-            <div 
+            <div
               ref={tabsScrollRef}
               className="overflow-x-auto no-scrollbar scroll-smooth flex-1 flex items-center"
             >
               <TabsList className="bg-muted/60 p-1.5 rounded-xl h-auto flex items-center gap-1.5 border border-border/50">
                 {mainTabs.map((tab) => (
-                  <TabsTrigger 
-                    key={tab} 
+                  <TabsTrigger
+                    key={tab}
                     value={tab}
                     className="data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm rounded-lg px-4 py-2 text-xs md:text-sm font-semibold transition-all border border-transparent data-[state=active]:border-border/80 text-muted-foreground hover:text-foreground shrink-0"
                   >
@@ -2718,7 +4025,16 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             const mpd = idx >= 0 && idx < mpds.length ? mpds[idx] : undefined;
             return (
               <TabsContent key={tab} value={tab} className="p-6 mt-0">
-                <MPDTabContent mpdName={tab} mpd={mpd} />
+                <MPDTabContent
+                  key={tab}
+                  mpdName={tab}
+                  mpd={mpd}
+                  selectedDate={selectedDate}
+                  activeSubTab={activeSubTab}
+                  onSubTabChange={handleSubTabChange}
+                  rateMaster={rateMaster}
+                  activeShiftName={activeShiftName}
+                />
               </TabsContent>
             );
           })}

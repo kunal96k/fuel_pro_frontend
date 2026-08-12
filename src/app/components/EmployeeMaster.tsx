@@ -192,6 +192,11 @@ export function EmployeeMaster() {
       return;
     }
 
+    if (formData.name.trim().length > 50) {
+      toast.error('Employee Name cannot exceed 50 characters');
+      return;
+    }
+
     if (formData.dateOfTermination && formData.dateOfTermination < formData.joiningDate) {
       toast.warning('Warning: Date of termination cannot be before joining date');
       return;
@@ -500,13 +505,24 @@ export function EmployeeMaster() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
+                  <span className={`text-[10px] font-mono ${formData.name.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                    {formData.name.length}/50 chars
+                  </span>
+                </div>
                 <Input
                   id="name"
                   value={formData.name}
+                  maxLength={50}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter full name"
+                  placeholder="Enter full name (max 50 chars)"
                 />
+                {formData.name.length >= 50 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                    Maximum limit of 50 characters reached.
+                  </p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="employeeCode">Employee Code <span className="text-red-500">*</span></Label>

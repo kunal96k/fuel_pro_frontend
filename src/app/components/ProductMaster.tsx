@@ -122,6 +122,11 @@ export function ProductMaster() {
       return;
     }
 
+    if (formData.name.trim().length > 50) {
+      toast.error('Product name cannot exceed 50 characters!');
+      return;
+    }
+
     const duplicate = products.find(
       p => p.name.trim().toLowerCase() === formData.name.trim().toLowerCase() &&
       (!editingProduct || p.id !== editingProduct.id)
@@ -372,13 +377,24 @@ export function ProductMaster() {
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="name">Product Name <span className="text-red-500">*</span></Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="name">Product Name <span className="text-red-500">*</span></Label>
+                <span className={`text-[11px] font-mono ${formData.name.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                  {formData.name.length}/50 chars
+                </span>
+              </div>
               <Input
                 id="name"
                 value={formData.name}
+                maxLength={50}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Enter product name"
+                placeholder="Enter product name (max 50 chars)"
               />
+              {formData.name.length >= 50 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  Maximum limit of 50 characters reached.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="unit">Unit <span className="text-red-500">*</span></Label>

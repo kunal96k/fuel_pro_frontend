@@ -124,9 +124,14 @@ export function ShiftsMaster() {
       return;
     }
 
+    if (formData.shiftName.trim().length > 50) {
+      toast.error('Shift name cannot exceed 50 characters!');
+      return;
+    }
+
     const duplicate = shifts.find(
       s => s.shiftName.trim().toLowerCase() === formData.shiftName.trim().toLowerCase() &&
-      (!editingShift || s.id !== editingShift.id)
+        (!editingShift || s.id !== editingShift.id)
     );
     if (duplicate) {
       toast.warning(`Shift with name "${formData.shiftName}" already exists!`);
@@ -140,7 +145,6 @@ export function ShiftsMaster() {
       shiftType: formData.shiftType as 'Morning' | 'Afternoon' | 'Night',
       description: formData.description,
     };
-
     if (editingShift) {
       try {
         await updateShiftApi(editingShift.id, payload);
@@ -412,13 +416,24 @@ export function ShiftsMaster() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="shiftName">Shift Name <span className="text-red-500">*</span></Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="shiftName">Shift Name <span className="text-red-500">*</span></Label>
+                <span className={`text-[11px] font-mono ${formData.shiftName.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                  {formData.shiftName.length}/50 chars
+                </span>
+              </div>
               <Input
                 id="shiftName"
                 value={formData.shiftName}
+                maxLength={50}
                 onChange={(e) => setFormData({ ...formData, shiftName: e.target.value })}
-                placeholder="Enter shift name"
+                placeholder="Enter shift name (max 50 chars)"
               />
+              {formData.shiftName.length >= 50 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  Maximum limit of 50 characters reached.
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="shiftType">Shift Type <span className="text-red-500">*</span></Label>

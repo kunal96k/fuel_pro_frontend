@@ -151,6 +151,10 @@ export interface OwnUsageProps {
   prefilledMpdName?: string;
   onCloseModal?: () => void;
   isEmbedded?: boolean;
+  onTotalChange?: (total: number) => void;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
 }
 
 export function OwnUsage({
@@ -160,7 +164,11 @@ export function OwnUsage({
   editRecord = null,
   prefilledMpdName = '',
   onCloseModal,
-  isEmbedded = false
+  isEmbedded = false,
+  onTotalChange,
+  selectedDate,
+  selectedShift,
+  scopeMode = 'overall'
 }: OwnUsageProps) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -265,14 +273,27 @@ export function OwnUsage({
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
+      let activeFromDate = fromDateFilter;
+      let activeToDate = toDateFilter;
+      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+        if (!fromDateFilter && !toDateFilter && selectedDate) {
+          activeFromDate = selectedDate;
+          activeToDate = selectedDate;
+        }
+      }
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      }
+
       const fetchParams: any = {
         page: isEmbedded ? 0 : currentPage,
         size: isEmbedded ? 10000 : pageSize,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
         purpose: purposeFilter !== 'ALL' ? purposeFilter : undefined,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined,
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined,
         sortBy, sortDir
       };
 
@@ -280,8 +301,18 @@ export function OwnUsage({
 
       let filteredContent = res.content;
       if (isEmbedded && resolvedMpdName) {
+        const isMpdMatch = (rec?: string, tgt?: string) => {
+          if (!rec || !tgt) return false;
+          const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
+          const rNum = rec.match(/\d+/)?.[0];
+          const tNum = tgt.match(/\d+/)?.[0];
+          return Boolean(rNum && tNum && rNum === tNum);
+        };
+
         filteredContent = res.content.filter(
-          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+          r => isMpdMatch(r.mpdName, resolvedMpdName)
         );
       }
 
@@ -300,32 +331,31 @@ export function OwnUsage({
         setTotalElements(res.totalElements);
       }
 
-      // Fetch stats globally (without pagination limits)
+      // Fetch stats globally or scoped based on scopeMode
       const statsRes = await fetchOwnUsages({
         page: 0,
         size: 100000,
         search: searchTerm || undefined,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
         purpose: purposeFilter !== 'ALL' ? purposeFilter : undefined,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined,
-        sortBy,
-        sortDir
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined,
+        sortBy, sortDir
       });
 
-      let filteredStats = statsRes.content;
+      let statsFiltered = statsRes.content;
       if (isEmbedded && resolvedMpdName) {
-        filteredStats = statsRes.content.filter(
+        statsFiltered = statsRes.content.filter(
           r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
         );
       }
-      setStatsRecords(filteredStats);
+      setStatsRecords(statsFiltered);
     } catch {
       toast.error('Failed to load own usage records.');
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName]);
+  }, [currentPage, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate]);
 
   useEffect(() => {
     if (isEmbedded && resolvedMpdName) {
@@ -334,6 +364,13 @@ export function OwnUsage({
   }, [isEmbedded, resolvedMpdName]);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
+
+  useEffect(() => {
+    if (onTotalChange) {
+      const sum = statsRecords.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
+      onTotalChange(sum);
+    }
+  }, [statsRecords, onTotalChange]);
 
   // ── Load master data ──
   useEffect(() => {
@@ -572,7 +609,7 @@ export function OwnUsage({
   const downloadCSV = (data: OwnUsageRecord[]) => {
     const headers = ['Slip No', 'Date', 'Time', 'Vehicle No', 'Vehicle Type', 'Fuel Type', 'Category', 'Product', 'Qty', 'Unit', 'Rate', 'Total Amount', 'MPD', 'Nozzle', 'Purpose', 'Remarks', 'Authorized By', 'Approved By'];
     const rows = data.map(r => [r.slipNo, r.date, r.usageTime, r.vehicleNumber, r.vehicleType, r.fuelType, r.productCategory, r.productName, r.quantity, r.productUnit, r.rate, r.totalAmount, r.mpdName, r.nozzleName, r.purpose, r.remarks, r.authorizedBy, r.approvedBy]);
-    const csv = [headers.join(','), ...rows.map(row => row.map(v => `"${v ?? ''}"`).join(','))].join('\n');
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map(row => row.map(v => `"${v ?? ''}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

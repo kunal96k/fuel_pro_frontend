@@ -342,6 +342,7 @@ export function CustomerMaster() {
   // ── Save ──
   const handleSave = async (addAnother = false) => {
     if (!form.customerName.trim())    { toast.warning('Customer Name is required'); return; }
+    if (form.customerName.trim().length > 50) { toast.warning('Customer Name cannot exceed 50 characters'); return; }
     if (!form.contactPerson.trim())   { toast.warning('Contact Person is required'); return; }
     if (!form.aadharNo.trim())        { toast.warning('Aadhar Card No. is required'); return; }
     if (form.aadharNo.replace(/\s/g, '').length !== 12) {
@@ -579,9 +580,20 @@ export function CustomerMaster() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="customerName" className="text-xs font-medium">Customer Name<Req /></Label>
-                    <Input id="customerName" placeholder="Enter customer / company name" className="h-9 text-xs"
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="customerName" className="text-xs font-medium">Customer Name<Req /></Label>
+                      <span className={`text-[10px] font-mono ${form.customerName.length >= 50 ? 'text-red-500 font-bold' : 'text-muted-foreground'}`}>
+                        {form.customerName.length}/50 chars
+                      </span>
+                    </div>
+                    <Input id="customerName" placeholder="Enter customer / company name (max 50 chars)" className="h-9 text-xs"
+                      maxLength={50}
                       value={form.customerName} onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))} required />
+                    {form.customerName.length >= 50 && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                        Maximum limit of 50 characters reached.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

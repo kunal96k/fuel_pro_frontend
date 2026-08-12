@@ -144,6 +144,10 @@ export interface CreditSalesProps {
   prefilledMpdName?: string;
   onCloseModal?: () => void;
   isEmbedded?: boolean;
+  onTotalChange?: (total: number) => void;
+  selectedDate?: string;
+  selectedShift?: string;
+  scopeMode?: 'shift' | 'day' | 'overall';
 }
 
 export function CreditSales({
@@ -153,7 +157,11 @@ export function CreditSales({
   editRecord = null,
   prefilledMpdName = '',
   onCloseModal,
-  isEmbedded = false
+  isEmbedded = false,
+  onTotalChange,
+  selectedDate,
+  selectedShift,
+  scopeMode = 'overall'
 }: CreditSalesProps) {
   // ── Master data ──
   const [products, setProducts] = useState<Product[]>([]);
@@ -226,52 +234,8 @@ export function CreditSales({
     ? products.filter(p => p.category === form.productCategory)
     : products;
 
-  // ─────────────────────────────────────────────
-  // Load Credit Sales Records from backend
-  // ─────────────────────────────────────────────
-  const loadRecords = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetchCreditSales({
-        page: currentPage,
-        size: pageSize,
-        search: searchTerm || undefined,
-        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined,
-        sortBy,
-        sortDir
-      });
-      setRecords(res.content);
-      setTotalPages(res.totalPages);
-      setTotalElements(res.totalElements);
-
-      // Fetch stats globally (without pagination limits)
-      const statsRes = await fetchCreditSales({
-        page: 0,
-        size: 100000,
-        search: searchTerm || undefined,
-        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        mpd: mpdFilter !== 'ALL' ? mpdFilter : undefined,
-        fromDate: fromDateFilter || undefined,
-        toDate: toDateFilter || undefined,
-        sortBy,
-        sortDir
-      });
-      setStatsRecords(statsRes.content);
-    } catch {
-      toast.error('Failed to load credit sales records.');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, searchTerm, categoryFilter, mpdFilter, fromDateFilter, toDateFilter, sortBy, sortDir]);
-
-  useEffect(() => {
-    loadRecords();
-  }, [loadRecords]);
-
   // ── Prefilled MPD Resolution Effect ──
+  // Must be declared BEFORE loadRecords to avoid TDZ errors
   const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
 
   useEffect(() => {
@@ -290,6 +254,96 @@ export function CreditSales({
       setResolvedMpdName(prefilledMpdName);
     }
   }, [prefilledMpdName, mpds]);
+
+  // ─────────────────────────────────────────────
+  // Load Credit Sales Records from backend
+  // ─────────────────────────────────────────────
+  const loadRecords = useCallback(async () => {
+    // When embedded, wait until we have the resolved MPD name before fetching
+    if (isEmbedded && !resolvedMpdName) return;
+    setLoading(true);
+    try {
+      let activeFromDate = fromDateFilter;
+      let activeToDate = toDateFilter;
+      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+        if (!fromDateFilter && !toDateFilter && selectedDate) {
+          activeFromDate = selectedDate;
+          activeToDate = selectedDate;
+        }
+      }
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      }
+
+      // Always use resolvedMpdName as filter when embedded — never fall back to 'ALL'
+      const activeMpdFilter = isEmbedded && resolvedMpdName
+        ? resolvedMpdName
+        : (mpdFilter !== 'ALL' ? mpdFilter : undefined);
+
+      const res = await fetchCreditSales({
+        page: currentPage,
+        size: pageSize,
+        search: searchTerm || undefined,
+        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+        mpd: activeMpdFilter || undefined,
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined,
+        sortBy,
+        sortDir
+      });
+      setRecords(res.content);
+      setTotalPages(res.totalPages);
+      setTotalElements(res.totalElements);
+
+      // Fetch stats for total calculation, always scoped to the correct MPD when embedded
+      const statsRes = await fetchCreditSales({
+        page: 0,
+        size: 100000,
+        search: searchTerm || undefined,
+        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+        mpd: activeMpdFilter || undefined,
+        fromDate: activeFromDate || undefined,
+        toDate: activeToDate || undefined,
+        sortBy,
+        sortDir
+      });
+
+      // Extra client-side MPD name filter for safety when embedded
+      let statsContent = statsRes.content;
+      if (isEmbedded && resolvedMpdName) {
+        const isMpdMatch = (rec?: string, tgt?: string) => {
+          if (!rec || !tgt) return false;
+          const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
+          const rNum = rec.match(/\d+/)?.[0];
+          const tNum = tgt.match(/\d+/)?.[0];
+          return Boolean(rNum && tNum && rNum === tNum);
+        };
+
+        statsContent = statsRes.content.filter(
+          r => isMpdMatch(r.mpdName, resolvedMpdName)
+        );
+      }
+      setStatsRecords(statsContent);
+    } catch {
+      toast.error('Failed to load credit sales records.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, searchTerm, categoryFilter, mpdFilter, resolvedMpdName, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, scopeMode, selectedDate]);
+
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
+
+  useEffect(() => {
+    if (onTotalChange) {
+      const sum = statsRecords.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
+      onTotalChange(sum);
+    }
+  }, [statsRecords, onTotalChange]);
 
   useEffect(() => {
     if (isEmbedded && resolvedMpdName) {
@@ -849,7 +903,7 @@ export function CreditSales({
       r.quantity, r.productUnit, r.rate, r.totalAmount,
       r.mpdName, r.nozzleName
     ]);
-    const csvContent = [headers.join(','), ...rows.map(row => row.map(v => `"${v ?? ''}"`).join(','))].join('\n');
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.map(v => `"${v ?? ''}"`).join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

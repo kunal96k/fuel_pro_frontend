@@ -77,6 +77,7 @@ export interface Nozzle {
   nozzleName: string;
   fuelType: string;
   connectedTank: string;
+  initialOpeningReading?: number;
 }
 
 export interface MPD {
@@ -611,7 +612,7 @@ export async function fetchMpds(params: MPDQueryParams = {}): Promise<PaginatedR
   const res = await fetch(`${API_BASE_URL}/mpds?${query.toString()}`);
   if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
   const data = await res.json();
-  return parsePaginatedResponse(data, (item) => ({
+  const parsed = parsePaginatedResponse(data, (item) => ({
     id: String(item.id),
     mpdName: item.mpdName,
     numberOfNozzles: Number(item.numberOfNozzles),
@@ -619,16 +620,26 @@ export async function fetchMpds(params: MPDQueryParams = {}): Promise<PaginatedR
       id: String(n.id),
       nozzleName: n.nozzleName,
       fuelType: n.fuelType,
-      connectedTank: n.connectedTank
+      connectedTank: n.connectedTank,
+      initialOpeningReading: n.initialOpeningReading != null ? Number(n.initialOpeningReading) : undefined
     }))
   }));
+  
+  parsed.content.sort((a, b) => {
+    const numA = parseInt((a.mpdName.match(/\d+/) || ['999'])[0], 10);
+    const numB = parseInt((b.mpdName.match(/\d+/) || ['999'])[0], 10);
+    if (numA !== numB) return numA - numB;
+    return a.mpdName.localeCompare(b.mpdName);
+  });
+  
+  return parsed;
 }
 
 export async function fetchMpdsAll(): Promise<MPD[]> {
   const res = await fetch(`${API_BASE_URL}/mpds/all`);
   if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
   const data = await res.json();
-  return (data || []).map((item: any) => ({
+  const list = (data || []).map((item: any) => ({
     id: String(item.id),
     mpdName: item.mpdName,
     numberOfNozzles: Number(item.numberOfNozzles),
@@ -636,9 +647,17 @@ export async function fetchMpdsAll(): Promise<MPD[]> {
       id: String(n.id),
       nozzleName: n.nozzleName,
       fuelType: n.fuelType,
-      connectedTank: n.connectedTank
+      connectedTank: n.connectedTank,
+      initialOpeningReading: n.initialOpeningReading != null ? Number(n.initialOpeningReading) : undefined
     }))
   }));
+
+  return list.sort((a, b) => {
+    const numA = parseInt((a.mpdName.match(/\d+/) || ['999'])[0], 10);
+    const numB = parseInt((b.mpdName.match(/\d+/) || ['999'])[0], 10);
+    if (numA !== numB) return numA - numB;
+    return a.mpdName.localeCompare(b.mpdName);
+  });
 }
 
 export async function createMpdApi(mpdData: Omit<MPD, 'id'>): Promise<MPD> {
@@ -725,11 +744,39 @@ export async function saveMeterReadingsBatchApi(readings: MeterReading[]): Promi
   return (data || []).map((item: any) => ({ ...item, id: String(item.id) }));
 }
 
-export async function fetchLatestMeterReading(nozzleId: string): Promise<number | null> {
-  const res = await fetch(`${API_BASE_URL}/meter-readings/latest?nozzleId=${nozzleId}`);
+export async function fetchLatestMeterReading(
+  nozzleId: string,
+  excludeDate?: string,
+  excludeShift?: string
+): Promise<number | null> {
+  const params = new URLSearchParams({ nozzleId });
+  if (excludeDate) params.set('excludeDate', excludeDate);
+  if (excludeShift) params.set('excludeShift', excludeShift);
+  const res = await fetch(`${API_BASE_URL}/meter-readings/latest?${params.toString()}`);
   if (!res.ok) return null;
   const data = await res.json();
   return data != null ? Number(data) : null;
+}
+
+/**
+ * Fetches an already-saved meter reading for a specific nozzle+date+shift.
+ * Returns null if no record exists (204 No Content or error).
+ */
+export async function fetchExistingMeterReading(
+  nozzleId: string,
+  date: string,
+  shiftName: string
+): Promise<MeterReading | null> {
+  const params = new URLSearchParams({ nozzleId, date, shiftName });
+  const res = await fetch(`${API_BASE_URL}/meter-readings/existing?${params.toString()}`);
+  if (!res.ok || res.status === 204) return null;
+  try {
+    const data = await res.json();
+    if (!data) return null;
+    return { ...data, id: String(data.id), nozzleId: String(data.nozzleId) };
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchMeterReadingsHistory(params: MeterReadingQueryParams = {}): Promise<PaginatedResponse<MeterReading>> {
@@ -1353,6 +1400,48 @@ export async function fetchLatestOrDateRates(date: string): Promise<Record<strin
   return await res.json();
 }
 
+// --- MPD Reconciliation Interfaces & APIs ---
+export interface MpdReconciliationItem {
+  employeeId?: number | string;
+  employeeName?: string;
+  shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
+  shortageReason?: string;
+  amount: number;
+}
+
+export interface MpdReconciliationRecord {
+  id?: string;
+  date: string;
+  shiftName: string;
+  mpdName: string;
+  employeeShortage?: number;
+  employeeId?: number | string;
+  employeeName?: string;
+  shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
+  shortageReason?: string;
+  items?: MpdReconciliationItem[];
+  roundUp?: number;
+  createdAt?: string;
+}
+
+export async function saveMpdReconciliationApi(payload: MpdReconciliationRecord): Promise<MpdReconciliationRecord> {
+  const res = await fetch(`${API_BASE_URL}/reconciliations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Failed to save reconciliation summary (${res.status})`);
+  return await res.json();
+}
+
+export async function fetchExistingMpdReconciliation(date: string, shiftName: string, mpdName: string): Promise<MpdReconciliationRecord | null> {
+  const query = new URLSearchParams({ date, shiftName, mpdName });
+  const res = await fetch(`${API_BASE_URL}/reconciliations/existing?${query.toString()}`);
+  if (res.status === 204 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to fetch existing reconciliation summary (${res.status})`);
+  return await res.json();
+}
+
 // --- Own Usage Interfaces ---
 export interface OwnUsageRecord {
   id: string;
@@ -1594,5 +1683,78 @@ export async function fetchNextFuelTestReportNoApi(date: string): Promise<string
   const data = await res.json();
   return data.reportNo;
 }
+
+// --- Shift Settlements API ---
+export interface ShiftSettlementRecord {
+  id: string;
+  settlementNo?: string;
+  mpdId?: number;
+  mpdName?: string;
+  shiftName?: string;
+  paymentMethod: string;
+  amount: number;
+  referenceNo: string;
+  date: string;
+  time: string;
+  remarks?: string;
+}
+
+export async function fetchSettlementsByMpd(mpdName: string): Promise<ShiftSettlementRecord[]> {
+  const res = await fetch(`${API_BASE_URL}/settlements/mpd/${encodeURIComponent(mpdName)}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return (data || []).map((item: any) => ({
+    id: String(item.id),
+    settlementNo: item.settlementNo ? item.settlementNo : `SET-${(item.date || '2026').slice(0, 4)}-${String(item.id).padStart(4, '0')}`,
+    mpdId: item.mpdId,
+    mpdName: item.mpdName,
+    shiftName: item.shiftName,
+    paymentMethod: item.paymentMethod,
+    amount: Number(item.amount || 0),
+    referenceNo: item.referenceNo || '',
+    date: item.date || '',
+    time: item.time || '',
+    remarks: item.remarks || '',
+  }));
+}
+
+export async function createSettlementApi(payload: Partial<ShiftSettlementRecord>): Promise<ShiftSettlementRecord> {
+  const res = await fetch(`${API_BASE_URL}/settlements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create settlement: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateSettlementApi(id: string, payload: Partial<ShiftSettlementRecord>): Promise<ShiftSettlementRecord> {
+  const res = await fetch(`${API_BASE_URL}/settlements/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update settlement: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteSettlementApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/settlements/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to delete settlement: ${res.statusText}`);
+  }
+}
+
 
 
