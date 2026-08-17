@@ -753,9 +753,15 @@ export async function fetchLatestMeterReading(
   if (excludeDate) params.set('excludeDate', excludeDate);
   if (excludeShift) params.set('excludeShift', excludeShift);
   const res = await fetch(`${API_BASE_URL}/meter-readings/latest?${params.toString()}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data != null ? Number(data) : null;
+  if (!res.ok || res.status === 204) return null;
+  const text = await res.text();
+  if (!text || !text.trim()) return null;
+  try {
+    const data = JSON.parse(text);
+    return data != null && !isNaN(Number(data)) ? Number(data) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -808,6 +814,30 @@ export async function fetchMeterReadingsHistory(params: MeterReadingQueryParams 
     number: data.number,
     size: data.size
   };
+}
+
+export interface MeterReadingSummaryDTO {
+  totalElements: number;
+  totalOpening: number;
+  totalClosing: number;
+  totalTesting: number;
+  totalSalesLiters: number;
+  totalAmount: number;
+}
+
+export async function fetchMeterReadingsSummary(params: MeterReadingQueryParams = {}): Promise<MeterReadingSummaryDTO> {
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.mpdId) query.set('mpdId', params.mpdId);
+  if (params.nozzleId) query.set('nozzleId', params.nozzleId);
+  if (params.shiftName) query.set('shiftName', params.shiftName);
+  if (params.fuelType) query.set('fuelType', params.fuelType);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+
+  const res = await fetch(`${API_BASE_URL}/meter-readings/history/summary?${query.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch meter readings summary: ${res.statusText}`);
+  return await res.json();
 }
 
 
@@ -876,7 +906,10 @@ export interface NozzleAssignmentPayload {
   status?: string;
 }
 
-export async function fetchEmployeeAssignments(date: string, shiftId: string): Promise<EmployeeAssignment[]> {
+export async function fetchEmployeeAssignments(date?: string, shiftId?: string): Promise<EmployeeAssignment[]> {
+  if (!date || !shiftId || date === 'undefined' || shiftId === 'undefined') {
+    return [];
+  }
   const res = await fetch(`${API_BASE_URL}/employee-assignments?date=${date}&shiftId=${shiftId}`);
   if (!res.ok) throw new Error(`Failed to fetch assignments: ${res.statusText}`);
   const data = await res.json();
@@ -1029,6 +1062,7 @@ export async function fetchCashCollections(
   if (params.search) query.set('search', params.search);
   if (params.status && params.status !== 'ALL') query.set('status', params.status);
   if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
+  if (params.mpd) query.set('mpd', params.mpd);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
   if (params.sortBy) query.set('sortBy', params.sortBy);
@@ -1406,6 +1440,7 @@ export interface MpdReconciliationItem {
   employeeName?: string;
   shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
   shortageReason?: string;
+  status?: 'Paid' | 'Pending' | string;
   amount: number;
 }
 
@@ -1419,6 +1454,7 @@ export interface MpdReconciliationRecord {
   employeeName?: string;
   shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
   shortageReason?: string;
+  status?: 'Paid' | 'Pending' | string;
   items?: MpdReconciliationItem[];
   roundUp?: number;
   createdAt?: string;

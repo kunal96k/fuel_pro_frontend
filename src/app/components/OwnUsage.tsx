@@ -67,6 +67,8 @@ import {
   Employee,
   fetchLatestOrDateRates,
 } from '../services/api';
+import { isRecordInShift } from '../utils/shiftUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
 
 
 // ─────────────────────────────────────────────────────────────
@@ -245,27 +247,50 @@ export function OwnUsage({
     return mpd ? mpd.nozzles : [];
   })();
 
-  const filteredProducts = form.productCategory
-    ? products.filter(p => p.category === form.productCategory)
-    : products;
+  // ── Derived: filtered products by category, MPD & nozzle ──
+  const filteredProducts = (() => {
+    if (!form.productCategory) return products;
+    let list = products.filter(p => p.category === form.productCategory);
 
-  // ── Prefilled MPD Resolution Effect ──
-  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+    if (form.productCategory === 'Fuel' && form.mpdId) {
+      const selectedNozzle = availableNozzles.find(nz => nz.id === form.nozzleId || nz.nozzleName === form.nozzleName);
 
-  useEffect(() => {
-    if (prefilledMpdName && mpds.length > 0) {
-      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
-      if (match) {
-        const idx = parseInt(match[1]) - 1;
-        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
-        if (idx >= 0 && idx < sortedMpds.length) {
-          setResolvedMpdName(sortedMpds[idx].mpdName);
-          return;
+      if (selectedNozzle) {
+        const fuelName = selectedNozzle.fuelType || (selectedNozzle as any).connectedTank || '';
+        if (fuelName) {
+          const normFuel = fuelName.toLowerCase().trim();
+          const matched = list.filter(p => {
+            const normP = p.name.toLowerCase().trim();
+            return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
+          });
+          if (matched.length > 0) return matched;
         }
       }
-      setResolvedMpdName(prefilledMpdName);
-    } else {
-      setResolvedMpdName(prefilledMpdName);
+
+      if (availableNozzles.length > 0) {
+        const mpdFuelNames = availableNozzles
+          .map(nz => (nz.fuelType || (nz as any).connectedTank || '').toLowerCase().trim())
+          .filter(Boolean);
+
+        if (mpdFuelNames.length > 0) {
+          const matched = list.filter(p => {
+            const normP = p.name.toLowerCase().trim();
+            return mpdFuelNames.some(f => normP === f || normP.includes(f) || f.includes(normP));
+          });
+          if (matched.length > 0) return matched;
+        }
+      }
+    }
+
+    return list;
+  })();
+
+  // ── Prefilled MPD Resolution Effect ──
+  const [resolvedMpdName, setResolvedMpdName] = useState(() => resolveMpdNameFromList(prefilledMpdName, mpds));
+
+  useEffect(() => {
+    if (prefilledMpdName) {
+      setResolvedMpdName(resolveMpdNameFromList(prefilledMpdName, mpds));
     }
   }, [prefilledMpdName, mpds]);
 
@@ -275,15 +300,14 @@ export function OwnUsage({
     try {
       let activeFromDate = fromDateFilter;
       let activeToDate = toDateFilter;
-      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      } else if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
         if (!fromDateFilter && !toDateFilter && selectedDate) {
           activeFromDate = selectedDate;
           activeToDate = selectedDate;
         }
-      }
-      if (scopeMode === 'overall') {
-        activeFromDate = '';
-        activeToDate = '';
       }
 
       const fetchParams: any = {
@@ -301,19 +325,55 @@ export function OwnUsage({
 
       let filteredContent = res.content;
       if (isEmbedded && resolvedMpdName) {
-        const isMpdMatch = (rec?: string, tgt?: string) => {
-          if (!rec || !tgt) return false;
-          const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isMpdMatch = (rec?: any, tgt?: string) => {
+          if (!tgt || !rec) return false;
+          const recStr = typeof rec === 'object' ? (rec.mpdName || rec.mpd || rec.mpdId || rec.dispenser || '') : String(rec);
+          if (!recStr || !recStr.trim()) return false;
+          const rNorm = recStr.trim().toLowerCase();
+          const tNorm = tgt.trim().toLowerCase();
           if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
-          const rNum = rec.match(/\d+/)?.[0];
-          const tNum = tgt.match(/\d+/)?.[0];
+          const rNum = recStr.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || recStr.match(/\d+/)?.[0];
+          const tNum = tgt.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || tgt.match(/\d+/)?.[0];
           return Boolean(rNum && tNum && rNum === tNum);
         };
 
-        filteredContent = res.content.filter(
-          r => isMpdMatch(r.mpdName, resolvedMpdName)
-        );
+        let filtered = res.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift)
+            : true;
+          return mpdOk && shiftOk;
+        });
+
+        // Fallback 1: If date/shift filter yields 0 records but res.content has MPD records, display MPD records
+        if (filtered.length === 0 && res.content.length > 0) {
+          filtered = res.content.filter(r => {
+            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+            return isStrictMpdMatch(mpdStr, resolvedMpdName);
+          });
+        }
+
+        // Fallback 2: If fetch with activeFromDate returned 0 records, fetch all records for this MPD
+        if (filtered.length === 0 && activeFromDate) {
+          try {
+            const fallbackRes = await fetchOwnUsages({
+              page: 0,
+              size: 1000,
+              mpd: resolvedMpdName
+            });
+            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
+              filtered = fallbackRes.content.filter(r => {
+                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+                return isStrictMpdMatch(mpdStr, resolvedMpdName);
+              });
+            }
+          } catch (e) {
+            // ignore fallback error
+          }
+        }
+
+        filteredContent = filtered;
       }
 
       if (isEmbedded) {
@@ -346,8 +406,11 @@ export function OwnUsage({
       let statsFiltered = statsRes.content;
       if (isEmbedded && resolvedMpdName) {
         statsFiltered = statsRes.content.filter(
-          r => r.mpdName && r.mpdName.toLowerCase() === resolvedMpdName.toLowerCase()
+          r => isStrictMpdMatch(r.mpdName || (r as any).mpd || (r as any).mpdId, resolvedMpdName)
         );
+        if (statsFiltered.length === 0 && filteredContent.length > 0) {
+          statsFiltered = filteredContent;
+        }
       }
       setStatsRecords(statsFiltered);
     } catch {
@@ -355,7 +418,7 @@ export function OwnUsage({
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate]);
+  }, [currentPage, pageSize, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate, selectedShift]);
 
   useEffect(() => {
     if (isEmbedded && resolvedMpdName) {
@@ -399,18 +462,24 @@ export function OwnUsage({
   // ── Dynamic Rate Lookup ──
   const loadDynamicRate = useCallback(async (productId: string, dateStr: string) => {
     if (!productId || !dateStr) return;
-    const p = products.find(prod => prod.id === productId);
+    const p = products.find(prod => String(prod.id) === String(productId) || prod.name === productId);
     if (!p) return;
-    if (p.category === 'Fuel') {
-      try {
-        const ratesMap = await fetchLatestOrDateRates(dateStr);
-        const dynamicRate = ratesMap[p.name.toLowerCase()] ?? ratesMap[p.name] ?? p.price;
+    try {
+      const ratesMap = await fetchLatestOrDateRates(dateStr);
+      let dynamicRate: number | undefined = undefined;
+      if (ratesMap[p.id] !== undefined && Number(ratesMap[p.id]) > 0) dynamicRate = Number(ratesMap[p.id]);
+      else if (ratesMap[String(p.id)] !== undefined && Number(ratesMap[String(p.id)]) > 0) dynamicRate = Number(ratesMap[String(p.id)]);
+      else if (ratesMap[p.name] !== undefined && Number(ratesMap[p.name]) > 0) dynamicRate = Number(ratesMap[p.name]);
+      else if (ratesMap[p.name.toLowerCase()] !== undefined && Number(ratesMap[p.name.toLowerCase()]) > 0) dynamicRate = Number(ratesMap[p.name.toLowerCase()]);
+      else if ((p as any).price > 0) dynamicRate = Number((p as any).price);
+
+      if (dynamicRate !== undefined && dynamicRate > 0) {
         setForm(prev => ({ ...prev, rate: String(dynamicRate) }));
-      } catch {
-        setForm(prev => ({ ...prev, rate: String(p.price) }));
       }
-    } else {
-      setForm(prev => ({ ...prev, rate: String(p.price) }));
+    } catch {
+      if ((p as any).price > 0) {
+        setForm(prev => ({ ...prev, rate: String((p as any).price) }));
+      }
     }
   }, [products]);
 
@@ -474,14 +543,53 @@ export function OwnUsage({
     loadDynamicRate(productId, form.date);
   };
 
+  const autoSelectProductForNozzle = useCallback((nozzleObj: Nozzle) => {
+    if (!nozzleObj) return;
+    const fuelName = nozzleObj.fuelType || (nozzleObj as any).connectedTank || '';
+    if (!fuelName) return;
+
+    const normFuel = fuelName.toLowerCase().trim();
+    const matchedProduct = products.find(p => {
+      if (p.category !== 'Fuel') return false;
+      const normP = p.name.toLowerCase().trim();
+      return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
+    });
+
+    if (matchedProduct) {
+      setForm(prev => ({
+        ...prev,
+        productCategory: 'Fuel',
+        productId: matchedProduct.id,
+        productName: matchedProduct.name,
+        productUnit: matchedProduct.unit
+      }));
+      loadDynamicRate(matchedProduct.id, form.date);
+    }
+  }, [products, form.date, loadDynamicRate]);
+
   const handleMpdChange = (mpdId: string) => {
     const m = mpds.find(m => m.id === mpdId);
-    setForm(prev => ({ ...prev, mpdId, mpdName: m?.mpdName ?? '', nozzleId: '', nozzleName: '' }));
+    const firstNozzle = m?.nozzles && m.nozzles.length > 0 ? m.nozzles[0] : null;
+
+    setForm(prev => ({
+      ...prev,
+      mpdId,
+      mpdName: m?.mpdName ?? '',
+      nozzleId: firstNozzle ? (firstNozzle.id || '') : '',
+      nozzleName: firstNozzle ? firstNozzle.nozzleName : ''
+    }));
+
+    if (firstNozzle) {
+      autoSelectProductForNozzle(firstNozzle);
+    }
   };
 
   const handleNozzleChange = (nozzleId: string) => {
-    const nz = availableNozzles.find(n => n.id === nozzleId);
+    const nz = availableNozzles.find(n => n.id === nozzleId || n.nozzleName === nozzleId);
     setForm(prev => ({ ...prev, nozzleId, nozzleName: nz?.nozzleName ?? '' }));
+    if (nz) {
+      autoSelectProductForNozzle(nz);
+    }
   };
 
   // ── Modal openers ──
@@ -494,7 +602,7 @@ export function OwnUsage({
     } catch {
       nextSlip = 'OWN-TEMP';
     }
-    
+
     let defaultMpdId = '';
     let defaultMpdName = '';
     if (resolvedMpdName && mpds.length > 0) {
@@ -668,7 +776,7 @@ export function OwnUsage({
   if (embeddedModalOnly) {
     if (!showModal) return null;
     return (
-      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if (!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -1009,7 +1117,7 @@ export function OwnUsage({
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW MODAL
       ════════════════════════════════════════════════════ */}
-      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if (!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -1217,7 +1325,95 @@ export function OwnUsage({
               </div>
 
               {/* ─────────────────────────────────
-                  SECTION 2: PRODUCT & PRICING DETAILS
+                  SECTION 2: DISPENSER ASSIGNMENT & REMARKS
+              ───────────────────────────────── */}
+              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Left Column: Dispenser details */}
+                  <div className="space-y-3">
+                    <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Dispenser Assignment
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* MPD */}
+                      <div className="space-y-1">
+                        <Label htmlFor="ou-mpd" className="text-xs font-medium">
+                          MPD Dispenser
+                        </Label>
+                        {isView ? (
+                          <Input
+                            id="ou-mpd"
+                            value={form.mpdName}
+                            disabled
+                            tabIndex={-1}
+                            className="h-9 text-xs bg-muted"
+                          />
+                        ) : (
+                          <Select value={form.mpdId} onValueChange={handleMpdChange} disabled={loadingMaster || (isEmbedded && !!resolvedMpdName)}>
+                            <SelectTrigger id="ou-mpd" tabIndex={6} className="h-9 text-xs">
+                              <SelectValue placeholder="Select MPD" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {mpds.map(m => (
+                                <SelectItem key={m.id} value={m.id}>{m.mpdName}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {/* Nozzle */}
+                      <div className="space-y-1">
+                        <Label htmlFor="ou-nozzle" className="text-xs font-medium">
+                          Nozzle
+                        </Label>
+                        {isView ? (
+                          <Input
+                            id="ou-nozzle"
+                            value={form.nozzleName}
+                            disabled
+                            tabIndex={-1}
+                            className="h-9 text-xs bg-muted"
+                          />
+                        ) : (
+                          <Select value={form.nozzleId} onValueChange={handleNozzleChange} disabled={!form.mpdId || availableNozzles.length === 0}>
+                            <SelectTrigger id="ou-nozzle" tabIndex={7} className="h-9 text-xs">
+                              <SelectValue placeholder={!form.mpdId ? 'Select MPD first' : 'Select Nozzle'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableNozzles.map(n => (
+                                <SelectItem key={n.id} value={n.id!}>{n.nozzleName}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Remarks */}
+                  <div className="space-y-3">
+                    <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Additional Notes
+                    </h3>
+                    <div className="space-y-1">
+                      <Label htmlFor="ou-remarks" className="text-xs font-medium">Remarks / Notes</Label>
+                      <Input
+                        id="ou-remarks"
+                        placeholder="Optional remarks..."
+                        value={form.remarks}
+                        onChange={e => setForm(prev => ({ ...prev, remarks: e.target.value }))}
+                        disabled={isView}
+                        tabIndex={8}
+                        className="h-9 text-xs bg-background"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ─────────────────────────────────
+                  SECTION 3: PRODUCT & PRICING DETAILS
               ───────────────────────────────── */}
               <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
                 <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -1239,7 +1435,7 @@ export function OwnUsage({
                       />
                     ) : (
                       <Select value={form.productCategory} onValueChange={v => setForm(prev => ({ ...prev, productCategory: v as any, productId: '', productName: '', productUnit: '' }))}>
-                        <SelectTrigger id="ou-cat" tabIndex={6} className="h-9 text-xs">
+                        <SelectTrigger id="ou-cat" tabIndex={9} className="h-9 text-xs">
                           <SelectValue placeholder="Select Category" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1265,7 +1461,7 @@ export function OwnUsage({
                       />
                     ) : (
                       <Select value={form.productId} onValueChange={handleProductChange} disabled={loadingMaster}>
-                        <SelectTrigger id="ou-product" tabIndex={7} className="h-9 text-xs">
+                        <SelectTrigger id="ou-product" tabIndex={10} className="h-9 text-xs">
                           <SelectValue placeholder="Select Product" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1306,7 +1502,7 @@ export function OwnUsage({
                       value={form.quantity}
                       onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))}
                       onWheel={e => e.currentTarget.blur()}
-                      tabIndex={8}
+                      tabIndex={11}
                       className="h-9 text-xs font-mono bg-background"
                     />
                   </div>
@@ -1316,94 +1512,6 @@ export function OwnUsage({
                     <Label className="text-xs font-medium">Total Amount (₹)</Label>
                     <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted font-bold text-orange-600 font-mono text-xs cursor-not-allowed">
                       {form.totalAmount ? formatCurrency(parseFloat(form.totalAmount)) : '₹ 0.00'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ─────────────────────────────────
-                  SECTION 3: DISPENSER & REMARKS
-              ───────────────────────────────── */}
-              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Left Column: Dispenser details */}
-                  <div className="space-y-3">
-                    <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                      Dispenser Assignment
-                    </h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* MPD */}
-                      <div className="space-y-1">
-                        <Label htmlFor="ou-mpd" className="text-xs font-medium">
-                          MPD Dispenser
-                        </Label>
-                        {isView ? (
-                          <Input
-                            id="ou-mpd"
-                            value={form.mpdName}
-                            disabled
-                            tabIndex={-1}
-                            className="h-9 text-xs bg-muted"
-                          />
-                        ) : (
-                          <Select value={form.mpdId} onValueChange={handleMpdChange} disabled={loadingMaster || (isEmbedded && !!resolvedMpdName)}>
-                            <SelectTrigger id="ou-mpd" tabIndex={9} className="h-9 text-xs">
-                              <SelectValue placeholder="Select MPD" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {mpds.map(m => (
-                                <SelectItem key={m.id} value={m.id}>{m.mpdName}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-
-                      {/* Nozzle */}
-                      <div className="space-y-1">
-                        <Label htmlFor="ou-nozzle" className="text-xs font-medium">
-                          Nozzle
-                        </Label>
-                        {isView ? (
-                          <Input
-                            id="ou-nozzle"
-                            value={form.nozzleName}
-                            disabled
-                            tabIndex={-1}
-                            className="h-9 text-xs bg-muted"
-                          />
-                        ) : (
-                          <Select value={form.nozzleId} onValueChange={handleNozzleChange} disabled={!form.mpdId || availableNozzles.length === 0}>
-                            <SelectTrigger id="ou-nozzle" tabIndex={10} className="h-9 text-xs">
-                              <SelectValue placeholder={!form.mpdId ? 'Select MPD first' : 'Select Nozzle'} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableNozzles.map(n => (
-                                <SelectItem key={n.id} value={n.id!}>{n.nozzleName}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Remarks */}
-                  <div className="space-y-3">
-                    <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                      Additional Notes
-                    </h3>
-                    <div className="space-y-1">
-                      <Label htmlFor="ou-remarks" className="text-xs font-medium">Remarks / Notes</Label>
-                      <Input
-                        id="ou-remarks"
-                        placeholder="Optional remarks..."
-                        value={form.remarks}
-                        onChange={e => setForm(prev => ({ ...prev, remarks: e.target.value }))}
-                        disabled={isView}
-                        tabIndex={11}
-                        className="h-9 text-xs bg-background"
-                      />
                     </div>
                   </div>
                 </div>

@@ -3,7 +3,7 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { 
+import {
   IndianRupee,
   Plus,
   Calendar,
@@ -32,16 +32,16 @@ import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { 
-  fetchEmployees, 
-  fetchCashCollections, 
-  fetchCashCollectionStats, 
-  createCashCollection, 
-  updateCashCollection, 
-  deleteCashCollection, 
-  formatDateToDMY, 
-  Employee, 
-  CashCollectionRecord, 
+import {
+  fetchEmployees,
+  fetchCashCollections,
+  fetchCashCollectionStats,
+  createCashCollection,
+  updateCashCollection,
+  deleteCashCollection,
+  formatDateToDMY,
+  Employee,
+  CashCollectionRecord,
   CashCollectionStats,
   API_BASE_URL,
   fetchMpdsAll,
@@ -51,6 +51,8 @@ import {
   EmployeeAssignment
 } from '../services/api';
 import { toast } from 'sonner';
+import { getActiveShiftNameFromMaster } from './FuelSaleForm';
+import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
 
 export interface CashCollectionProps {
   isEmbedded?: boolean;
@@ -144,16 +146,14 @@ export function CashCollection({
     async function loadMaster() {
       setLoadingMaster(true);
       try {
-        const [empData, mpdData, shiftData, dutyData] = await Promise.all([
+        const [empData, mpdData, shiftData] = await Promise.all([
           fetchEmployees({ size: 1000, status: 'Active' }),
           fetchMpdsAll(),
-          fetchShiftsAll(),
-          fetchEmployeeAssignments()
+          fetchShiftsAll()
         ]);
-        setEmployees(empData.content);
-        setMpds(mpdData);
-        setShifts(shiftData);
-        setDutyAssignments(dutyData);
+        setEmployees(empData?.content || []);
+        setMpds(mpdData || []);
+        setShifts(shiftData || []);
       } catch (err: any) {
         console.error('Failed to load master data for CashCollection:', err);
       } finally {
@@ -181,22 +181,11 @@ export function CashCollection({
   }, [formRecord.date, formRecord.shiftId]);
 
   // ── Prefilled MPD Resolution Effect ──
-  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+  const [resolvedMpdName, setResolvedMpdName] = useState(() => resolveMpdNameFromList(prefilledMpdName, mpds));
 
   useEffect(() => {
-    if (prefilledMpdName && mpds.length > 0) {
-      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
-      if (match) {
-        const idx = parseInt(match[1]) - 1;
-        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
-        if (idx >= 0 && idx < sortedMpds.length) {
-          setResolvedMpdName(sortedMpds[idx].mpdName);
-          return;
-        }
-      }
-      setResolvedMpdName(prefilledMpdName);
-    } else {
-      setResolvedMpdName(prefilledMpdName);
+    if (prefilledMpdName) {
+      setResolvedMpdName(resolveMpdNameFromList(prefilledMpdName, mpds));
     }
   }, [prefilledMpdName, mpds]);
 
@@ -206,15 +195,14 @@ export function CashCollection({
     try {
       let activeFromDate = fromDateFilter;
       let activeToDate = toDateFilter;
-      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      } else if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
         if (!fromDateFilter && !toDateFilter && selectedDate) {
           activeFromDate = selectedDate;
           activeToDate = selectedDate;
         }
-      }
-      if (scopeMode === 'overall') {
-        activeFromDate = '';
-        activeToDate = '';
       }
 
       const fetchParams: any = {
@@ -231,21 +219,35 @@ export function CashCollection({
 
       const recordsRes = await fetchCashCollections(fetchParams);
 
-      const isMpdMatch = (rec?: string, tgt?: string) => {
-        if (!rec || !tgt) return false;
-        const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
-        const rNum = rec.match(/\d+/)?.[0];
-        const tNum = tgt.match(/\d+/)?.[0];
-        return Boolean(rNum && tNum && rNum === tNum);
-      };
-
       let filteredContent = recordsRes.content;
       if (isEmbedded && resolvedMpdName) {
-        filteredContent = recordsRes.content.filter(
-          r => isMpdMatch(r.mpdName, resolvedMpdName)
+        let filtered = recordsRes.content.filter(
+          r => {
+            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+            return isStrictMpdMatch(mpdStr, resolvedMpdName);
+          }
         );
+
+        // Fallback: If activeFromDate returned 0 records, fetch all records for this MPD
+        if (filtered.length === 0 && activeFromDate) {
+          try {
+            const fallbackRes = await fetchCashCollections({
+              page: 0,
+              size: 10000,
+              mpd: resolvedMpdName
+            });
+            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
+              filtered = fallbackRes.content.filter(r => {
+                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+                return isStrictMpdMatch(mpdStr, resolvedMpdName);
+              });
+            }
+          } catch (e) {
+            // ignore fallback error
+          }
+        }
+
+        filteredContent = filtered;
       }
 
       if (isEmbedded) {
@@ -280,15 +282,22 @@ export function CashCollection({
           search: searchTerm,
           status: statusFilter,
           shift: shiftFilter,
+          mpd: resolvedMpdName,
           fromDate: activeFromDate || undefined,
           toDate: activeToDate || undefined,
           sortBy,
           sortDir
         });
-        const allFiltered = allRecordsRes.content.filter(
-          r => isMpdMatch(r.mpdName, resolvedMpdName)
+        let allFiltered = allRecordsRes.content.filter(
+          r => {
+            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+            return isStrictMpdMatch(mpdStr, resolvedMpdName);
+          }
         );
-        const totalAmount = allFiltered.reduce((sum, r) => sum + r.depositAmount, 0);
+        if (allFiltered.length === 0 && filteredContent.length > 0) {
+          allFiltered = filteredContent;
+        }
+        const totalAmount = allFiltered.reduce((sum, r) => sum + (r.depositAmount || 0), 0);
         const verifiedCount = allFiltered.filter(r => r.status === 'Verified').length;
         const totalEntries = allFiltered.length;
         setStats({
@@ -361,20 +370,53 @@ export function CashCollection({
   const handleAddNewClick = () => {
     setModalMode('add');
     setActiveRecordId(null);
-    
+
     let defaultMpdId = '';
-    if (resolvedMpdName && mpds.length > 0) {
-      const found = mpds.find(m => m.mpdName.toLowerCase() === resolvedMpdName.toLowerCase());
+    const targetMpdName = resolvedMpdName || prefilledMpdName;
+    if (targetMpdName && mpds.length > 0) {
+      const matchNumber = targetMpdName.match(/\d+/);
+      const targetNum = matchNumber ? matchNumber[0] : '';
+      const found = mpds.find(m =>
+        m.mpdName.toLowerCase() === targetMpdName.toLowerCase() ||
+        (targetNum && m.mpdName.match(/\d+/)?.[0] === targetNum)
+      );
       if (found) {
         defaultMpdId = found.id;
       }
     }
 
+    let defaultShiftId = '';
+    let defaultShiftName = '';
+    if (shifts.length > 0) {
+      let matchedShift = null;
+      if (selectedShift) {
+        matchedShift = shifts.find(s =>
+          s.shiftName.toLowerCase() === selectedShift.toLowerCase() ||
+          selectedShift.toLowerCase().includes(s.shiftName.toLowerCase()) ||
+          s.shiftName.toLowerCase().includes(selectedShift.toLowerCase())
+        );
+      }
+      if (!matchedShift) {
+        const activeShiftName = getActiveShiftNameFromMaster(shifts);
+        matchedShift = shifts.find(s => s.shiftName === activeShiftName) || shifts[0];
+      }
+      if (matchedShift) {
+        defaultShiftId = matchedShift.id;
+        defaultShiftName = `${matchedShift.shiftName} (${matchedShift.startTime}-${matchedShift.endTime})`;
+      }
+    }
+
+    let autoEmpId = '';
+    if (defaultMpdId && dutyAssignments.length > 0) {
+      const duty = dutyAssignments.find(d => String(d.mpdId) === String(defaultMpdId) && d.employeeId);
+      if (duty && duty.employeeId) autoEmpId = duty.employeeId;
+    }
+
     setFormRecord({
-      date: new Date().toISOString().slice(0, 10),
-      shift: '',
-      shiftId: '',
-      employeeId: '',
+      date: selectedDate || new Date().toISOString().slice(0, 10),
+      shift: defaultShiftName,
+      shiftId: defaultShiftId,
+      employeeId: autoEmpId,
       mpdId: defaultMpdId,
       depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
       status: 'Pending',
@@ -388,6 +430,63 @@ export function CashCollection({
     });
     setShowAddEditModal(true);
   };
+
+  // Auto-fill missing shiftId, mpdId, employeeId on formRecord when master data loads
+  useEffect(() => {
+    setFormRecord(prev => {
+      let updated = false;
+      const next = { ...prev };
+
+      if (!next.shiftId && shifts.length > 0) {
+        let matchedShift = null;
+        if (selectedShift) {
+          matchedShift = shifts.find(s =>
+            s.shiftName.toLowerCase() === selectedShift.toLowerCase() ||
+            selectedShift.toLowerCase().includes(s.shiftName.toLowerCase()) ||
+            s.shiftName.toLowerCase().includes(selectedShift.toLowerCase())
+          );
+        }
+        if (!matchedShift) {
+          const activeShiftName = getActiveShiftNameFromMaster(shifts);
+          matchedShift = shifts.find(s => s.shiftName === activeShiftName) || shifts[0];
+        }
+        if (matchedShift) {
+          next.shiftId = matchedShift.id;
+          next.shift = `${matchedShift.shiftName} (${matchedShift.startTime}-${matchedShift.endTime})`;
+          updated = true;
+        }
+      }
+
+      const targetMpdName = resolvedMpdName || prefilledMpdName;
+      if (!next.mpdId && targetMpdName && mpds.length > 0) {
+        const matchNumber = targetMpdName.match(/\d+/);
+        const targetNum = matchNumber ? matchNumber[0] : '';
+        const found = mpds.find(m =>
+          m.mpdName.toLowerCase() === targetMpdName.toLowerCase() ||
+          (targetNum && m.mpdName.match(/\d+/)?.[0] === targetNum)
+        );
+        if (found) {
+          next.mpdId = found.id;
+          updated = true;
+        }
+      }
+
+      if (!next.employeeId && next.mpdId && dutyAssignments.length > 0) {
+        const duty = dutyAssignments.find(d => String(d.mpdId) === String(next.mpdId) && d.employeeId);
+        if (duty && duty.employeeId) {
+          next.employeeId = duty.employeeId;
+          updated = true;
+        }
+      }
+
+      if (selectedDate && next.date !== selectedDate) {
+        next.date = selectedDate;
+        updated = true;
+      }
+
+      return updated ? next : prev;
+    });
+  }, [shifts, mpds, dutyAssignments, selectedShift, prefilledMpdName, resolvedMpdName, selectedDate]);
 
   // Init Form for Editing
   const handleEditClick = (record: CashCollectionRecord) => {
@@ -451,7 +550,7 @@ export function CashCollection({
       toast.success('Collection record deleted successfully');
       setShowDeleteConfirm(false);
       setRecordToDelete(null);
-      
+
       // Update selected records set
       const newSelected = new Set(selectedIds);
       newSelected.delete(recordToDelete.id);
@@ -649,10 +748,10 @@ export function CashCollection({
       toast.error('Popup blocked! Please allow popups to generate PDFs.');
       return;
     }
-    
+
     const formattedGenDate = formatDateToDMY(new Date().toISOString().slice(0, 10));
     const formattedGenTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-    
+
     let rowsHtml = '';
     data.forEach((r, idx) => {
       rowsHtml += `
@@ -878,8 +977,8 @@ export function CashCollection({
             {/* Search */}
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input 
-                placeholder="Search by Employee, MPD name..." 
+              <Input
+                placeholder="Search by Employee, MPD name..."
                 className="pl-9"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }}
@@ -1002,8 +1101,8 @@ export function CashCollection({
               <IndianRupee className="w-12 h-12 opacity-20" />
               <p className="text-sm font-medium">No cash collection records found</p>
               <p className="text-xs text-muted-foreground">
-                {searchTerm || statusFilter !== 'ALL' || fromDateFilter || toDateFilter 
-                  ? 'Try relaxing search or filter inputs.' 
+                {searchTerm || statusFilter !== 'ALL' || fromDateFilter || toDateFilter
+                  ? 'Try relaxing search or filter inputs.'
                   : 'Log shift collections to initialize logs.'}
               </p>
             </div>
@@ -1171,7 +1270,7 @@ export function CashCollection({
 
       {/* Add / Edit / View Dialog (Spacious two-column layout style matching Employee Assignment dialog content size overrides) */}
       <Dialog open={showAddEditModal} onOpenChange={setShowAddEditModal}>
-        <DialogContent 
+        <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '90vw', width: '850px', height: '88vh', maxHeight: '88vh' }}
         >
@@ -1185,11 +1284,11 @@ export function CashCollection({
           <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col overflow-hidden">
             <div className="overflow-y-auto custom-scrollbar flex-1 p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
+
                 {/* Left Side: Metadata select items */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">Collection Metadata</h3>
-                  
+
                   <div className="space-y-1.5">
                     <Label htmlFor="colDate" className="text-xs font-medium">
                       Collection Date <span className="text-red-500 font-bold">*</span>
@@ -1198,8 +1297,8 @@ export function CashCollection({
                       id="colDate"
                       type="date"
                       value={formRecord.date}
-                      onChange={e => setFormRecord(prev => ({ 
-                        ...prev, 
+                      onChange={e => setFormRecord(prev => ({
+                        ...prev,
                         date: e.target.value,
                         mpdId: '',
                         employeeId: ''
@@ -1213,13 +1312,13 @@ export function CashCollection({
                     <Label htmlFor="colShift" className="text-xs font-medium">
                       Operational Shift <span className="text-red-500 font-bold">*</span>
                     </Label>
-                    <Select 
-                      value={formRecord.shiftId || 'NONE'} 
+                    <Select
+                      value={formRecord.shiftId || 'NONE'}
                       onValueChange={(val) => {
                         const sObj = shifts.find(s => s.id === val);
                         const sName = sObj ? `${sObj.shiftName} (${sObj.startTime}-${sObj.endTime})` : (val === 'NONE' ? '' : val);
-                        setFormRecord(prev => ({ 
-                          ...prev, 
+                        setFormRecord(prev => ({
+                          ...prev,
                           shiftId: val === 'NONE' ? '' : val,
                           shift: sName,
                           mpdId: '',
@@ -1246,8 +1345,8 @@ export function CashCollection({
                     <Label htmlFor="colMpd" className="text-xs font-medium">
                       MPD Dispenser <span className="text-red-500 font-bold">*</span>
                     </Label>
-                    <Select 
-                      value={formRecord.mpdId || 'NONE'} 
+                    <Select
+                      value={formRecord.mpdId || 'NONE'}
                       onValueChange={(val) => {
                         const mpdVal = val === 'NONE' ? '' : val;
                         // Search for assigned attendant from duty roster for selected MPD
@@ -1256,8 +1355,8 @@ export function CashCollection({
                           const duty = dutyAssignments.find(d => String(d.mpdId) === String(mpdVal) && d.employeeId);
                           if (duty && duty.employeeId) autoEmpId = duty.employeeId;
                         }
-                        setFormRecord(prev => ({ 
-                          ...prev, 
+                        setFormRecord(prev => ({
+                          ...prev,
                           mpdId: mpdVal,
                           employeeId: autoEmpId || prev.employeeId
                         }));
@@ -1288,8 +1387,8 @@ export function CashCollection({
                     {loadingMaster || loadingDuty ? (
                       <div className="h-9 flex items-center text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin mr-1.5" /> Loading roster...</div>
                     ) : (
-                      <Select 
-                        value={formRecord.employeeId || 'NONE'} 
+                      <Select
+                        value={formRecord.employeeId || 'NONE'}
                         onValueChange={(val) => setFormRecord(prev => ({ ...prev, employeeId: val === 'NONE' ? '' : val }))}
                         disabled={modalMode === 'view'}
                       >
@@ -1340,17 +1439,18 @@ export function CashCollection({
                     <Label htmlFor="colStatus" className="text-xs font-medium">
                       Status <span className="text-red-500 font-bold">*</span>
                     </Label>
-                    <Select 
-                      value={formRecord.status} 
+                    <Select
+                      value={formRecord.status || 'Pending'}
                       onValueChange={(val: any) => setFormRecord(prev => ({ ...prev, status: val }))}
                       disabled={modalMode === 'view'}
                     >
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue />
+                        <SelectValue placeholder="Select Status" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Pending">Pending</SelectItem>
                         <SelectItem value="Completed">Completed</SelectItem>
+                        <SelectItem value="Verified">Verified</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1359,7 +1459,7 @@ export function CashCollection({
                 {/* Right Side: Notes splits */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-muted-foreground border-b pb-1.5">Denomination Splits</h3>
-                  
+
                   <div className="border rounded-lg overflow-hidden bg-muted/10">
                     <table className="w-full text-xs">
                       <thead>

@@ -73,6 +73,8 @@ import {
   fetchCustomers,
   Customer
 } from '../services/api';
+import { isRecordInShift } from '../utils/shiftUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -229,29 +231,52 @@ export function CreditSales({
     return mpd ? mpd.nozzles : [];
   })();
 
-  // ── Derived: filtered products by category ──
-  const filteredProducts = form.productCategory
-    ? products.filter(p => p.category === form.productCategory)
-    : products;
+  // ── Derived: filtered products by category, MPD & nozzle ──
+  const filteredProducts = (() => {
+    if (!form.productCategory) return products;
+    let list = products.filter(p => p.category === form.productCategory);
+
+    if (form.productCategory === 'Fuel' && form.mpdId) {
+      const selectedNozzle = availableNozzles.find(nz => nz.id === form.nozzleId || nz.nozzleName === form.nozzleName);
+
+      if (selectedNozzle) {
+        const fuelName = selectedNozzle.fuelType || (selectedNozzle as any).connectedTank || '';
+        if (fuelName) {
+          const normFuel = fuelName.toLowerCase().trim();
+          const matched = list.filter(p => {
+            const normP = p.name.toLowerCase().trim();
+            return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
+          });
+          if (matched.length > 0) return matched;
+        }
+      }
+
+      // If nozzle fuel is not specified or nozzle not selected yet, filter by all fuel types on this MPD
+      if (availableNozzles.length > 0) {
+        const mpdFuelNames = availableNozzles
+          .map(nz => (nz.fuelType || (nz as any).connectedTank || '').toLowerCase().trim())
+          .filter(Boolean);
+
+        if (mpdFuelNames.length > 0) {
+          const matched = list.filter(p => {
+            const normP = p.name.toLowerCase().trim();
+            return mpdFuelNames.some(f => normP === f || normP.includes(f) || f.includes(normP));
+          });
+          if (matched.length > 0) return matched;
+        }
+      }
+    }
+
+    return list;
+  })();
 
   // ── Prefilled MPD Resolution Effect ──
   // Must be declared BEFORE loadRecords to avoid TDZ errors
-  const [resolvedMpdName, setResolvedMpdName] = useState(prefilledMpdName);
+  const [resolvedMpdName, setResolvedMpdName] = useState(() => resolveMpdNameFromList(prefilledMpdName, mpds));
 
   useEffect(() => {
-    if (prefilledMpdName && mpds.length > 0) {
-      const match = prefilledMpdName.match(/^MPD_?(\d+)$/i);
-      if (match) {
-        const idx = parseInt(match[1]) - 1;
-        const sortedMpds = [...mpds].sort((a, b) => a.mpdName.localeCompare(b.mpdName));
-        if (idx >= 0 && idx < sortedMpds.length) {
-          setResolvedMpdName(sortedMpds[idx].mpdName);
-          return;
-        }
-      }
-      setResolvedMpdName(prefilledMpdName);
-    } else {
-      setResolvedMpdName(prefilledMpdName);
+    if (prefilledMpdName) {
+      setResolvedMpdName(resolveMpdNameFromList(prefilledMpdName, mpds));
     }
   }, [prefilledMpdName, mpds]);
 
@@ -265,15 +290,14 @@ export function CreditSales({
     try {
       let activeFromDate = fromDateFilter;
       let activeToDate = toDateFilter;
-      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+      if (scopeMode === 'overall') {
+        activeFromDate = '';
+        activeToDate = '';
+      } else if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
         if (!fromDateFilter && !toDateFilter && selectedDate) {
           activeFromDate = selectedDate;
           activeToDate = selectedDate;
         }
-      }
-      if (scopeMode === 'overall') {
-        activeFromDate = '';
-        activeToDate = '';
       }
 
       // Always use resolvedMpdName as filter when embedded — never fall back to 'ALL'
@@ -292,11 +316,58 @@ export function CreditSales({
         sortBy,
         sortDir
       });
-      setRecords(res.content);
-      setTotalPages(res.totalPages);
-      setTotalElements(res.totalElements);
 
-      // Fetch stats for total calculation, always scoped to the correct MPD when embedded
+      let displayContent = res.content;
+      if (isEmbedded && resolvedMpdName) {
+        let filtered = res.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? isRecordInShift(r.shiftName, r.saleTime, selectedShift)
+            : true;
+          return mpdOk && shiftOk;
+        });
+
+        // Fallback 1: If date/shift filter yields 0 records but res.content has MPD records, display MPD records
+        if (filtered.length === 0 && res.content.length > 0) {
+          filtered = res.content.filter(r => {
+            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+            return isStrictMpdMatch(mpdStr, resolvedMpdName);
+          });
+        }
+
+        // Fallback 2: If fetch with activeFromDate returned 0 records, fetch all records for this MPD
+        if (filtered.length === 0 && activeFromDate) {
+          try {
+            const fallbackRes = await fetchCreditSales({
+              page: 0,
+              size: 1000,
+              mpd: resolvedMpdName
+            });
+            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
+              filtered = fallbackRes.content.filter(r => {
+                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+                return isStrictMpdMatch(mpdStr, resolvedMpdName);
+              });
+            }
+          } catch (e) {
+            // ignore fallback error
+          }
+        }
+
+        // Fallback 3: If still 0, fall back to res.content
+        if (filtered.length === 0 && res.content.length > 0) {
+          filtered = res.content;
+        }
+
+        displayContent = filtered;
+      }
+
+      setRecords(displayContent);
+      setTotalPages(Math.max(1, Math.ceil(displayContent.length / pageSize)));
+      setTotalElements(displayContent.length);
+
+      // Fetch stats for total calculation, always scoped to the correct MPD & shift when embedded
       const statsRes = await fetchCreditSales({
         page: 0,
         size: 100000,
@@ -309,22 +380,20 @@ export function CreditSales({
         sortDir
       });
 
-      // Extra client-side MPD name filter for safety when embedded
       let statsContent = statsRes.content;
       if (isEmbedded && resolvedMpdName) {
-        const isMpdMatch = (rec?: string, tgt?: string) => {
-          if (!rec || !tgt) return false;
-          const rNorm = rec.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const tNorm = tgt.toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
-          const rNum = rec.match(/\d+/)?.[0];
-          const tNum = tgt.match(/\d+/)?.[0];
-          return Boolean(rNum && tNum && rNum === tNum);
-        };
-
-        statsContent = statsRes.content.filter(
-          r => isMpdMatch(r.mpdName, resolvedMpdName)
-        );
+        let statsFiltered = statsRes.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? isRecordInShift(r.shiftName, r.saleTime, selectedShift)
+            : true;
+          return mpdOk && shiftOk;
+        });
+        if (statsFiltered.length === 0 && displayContent.length > 0) {
+          statsFiltered = displayContent;
+        }
+        statsContent = statsFiltered;
       }
       setStatsRecords(statsContent);
     } catch {
@@ -332,7 +401,7 @@ export function CreditSales({
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, categoryFilter, mpdFilter, resolvedMpdName, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, scopeMode, selectedDate]);
+  }, [currentPage, searchTerm, categoryFilter, mpdFilter, resolvedMpdName, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, scopeMode, selectedDate, selectedShift]);
 
   useEffect(() => {
     loadRecords();
@@ -421,7 +490,7 @@ export function CreditSales({
     if (selectedCustomer) {
       // Local search inside customer vehicles list
       const query = vehicleSearch.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-      const filtered = customerVehicles.filter(v => 
+      const filtered = customerVehicles.filter(v =>
         (v.vehicleNumber || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase().includes(query)
       );
       setVehicleSuggestions(filtered.slice(0, 10));
@@ -486,17 +555,32 @@ export function CreditSales({
     if (!productId || !dateStr) return;
     try {
       const ratesMap = await fetchLatestOrDateRates(dateStr);
-      const matchedRate = ratesMap[productId];
-      if (matchedRate !== undefined) {
+      const p = products.find(prod => String(prod.id) === String(productId) || prod.name === productId);
+
+      let matchedRate: number | undefined = undefined;
+      if (ratesMap[productId] !== undefined && Number(ratesMap[productId]) > 0) {
+        matchedRate = Number(ratesMap[productId]);
+      } else if (ratesMap[String(productId)] !== undefined && Number(ratesMap[String(productId)]) > 0) {
+        matchedRate = Number(ratesMap[String(productId)]);
+      } else if (p) {
+        if (ratesMap[p.id] !== undefined && Number(ratesMap[p.id]) > 0) matchedRate = Number(ratesMap[p.id]);
+        else if (ratesMap[String(p.id)] !== undefined && Number(ratesMap[String(p.id)]) > 0) matchedRate = Number(ratesMap[String(p.id)]);
+        else if (ratesMap[p.name] !== undefined && Number(ratesMap[p.name]) > 0) matchedRate = Number(ratesMap[p.name]);
+        else if (ratesMap[p.name.toLowerCase()] !== undefined && Number(ratesMap[p.name.toLowerCase()]) > 0) matchedRate = Number(ratesMap[p.name.toLowerCase()]);
+        else if ((p as any).price > 0) matchedRate = Number((p as any).price);
+      }
+
+      if (matchedRate !== undefined && matchedRate > 0) {
+        const rateNumber = matchedRate;
         setForm(prev => {
-          const rateVal = String(matchedRate);
+          const rateVal = String(rateNumber);
           let qtyVal = prev.quantity;
           let totalVal = prev.totalAmount;
-          
+
           if (qtyVal) {
-            totalVal = (parseFloat(qtyVal) * matchedRate).toFixed(2);
+            totalVal = (parseFloat(qtyVal) * rateNumber).toFixed(2);
           } else if (totalVal) {
-            qtyVal = (parseFloat(totalVal) / matchedRate).toFixed(2);
+            qtyVal = (parseFloat(totalVal) / rateNumber).toFixed(2);
           }
           return {
             ...prev,
@@ -507,9 +591,9 @@ export function CreditSales({
         });
       }
     } catch {
-      // ignore, fall back to manual rate inputting
+      // ignore
     }
-  }, []);
+  }, [products]);
 
   useEffect(() => {
     if (form.productCategory === 'Fuel' && form.productId && form.date) {
@@ -552,15 +636,47 @@ export function CreditSales({
     }));
   };
 
+  const autoSelectProductForNozzle = useCallback((nozzleObj: Nozzle) => {
+    if (!nozzleObj) return;
+    const fuelName = nozzleObj.fuelType || (nozzleObj as any).connectedTank || '';
+    if (!fuelName) return;
+
+    const normFuel = fuelName.toLowerCase().trim();
+    const matchedProduct = products.find(p => {
+      if (p.category !== 'Fuel') return false;
+      const normP = p.name.toLowerCase().trim();
+      return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
+    });
+
+    if (matchedProduct) {
+      setForm(prev => ({
+        ...prev,
+        productCategory: 'Fuel',
+        productId: matchedProduct.id,
+        productName: matchedProduct.name,
+        productUnit: matchedProduct.unit,
+        rate: '',
+        quantity: '',
+        totalAmount: ''
+      }));
+    }
+  }, [products]);
+
   const handleMpdChange = (mpdId: string) => {
     const mpd = mpds.find(m => m.id === mpdId);
+    const firstNozzle = mpd?.nozzles && mpd.nozzles.length > 0 ? mpd.nozzles[0] : null;
+
     setForm(prev => ({
       ...prev,
       mpdId,
       mpdName: mpd?.mpdName ?? '',
-      nozzleId: '',
-      nozzleName: ''
+      nozzleId: firstNozzle ? firstNozzle.id : '',
+      nozzleName: firstNozzle ? firstNozzle.nozzleName : ''
     }));
+
+    if (firstNozzle) {
+      autoSelectProductForNozzle(firstNozzle);
+    }
   };
 
   const handleCategoryChange = (cat: 'Fuel' | 'Oil & Lubes') => {
@@ -587,7 +703,7 @@ export function CreditSales({
     setCustomerSearch('');
     setVehicleSearch('');
     setSlipNoExists(false);
-    
+
     let defaultMpdId = '';
     let defaultMpdName = '';
     if (resolvedMpdName && mpds.length > 0) {
@@ -607,7 +723,7 @@ export function CreditSales({
       mpdId: defaultMpdId,
       mpdName: defaultMpdName
     });
-    
+
     setShowModal(true);
 
     try {
@@ -615,9 +731,9 @@ export function CreditSales({
         fetchNextVoucherNo(),
         fetchNextSlipNo(getISTDateString())
       ]);
-      setForm(prev => ({ 
-        ...prev, 
-        voucherNo: vch, 
+      setForm(prev => ({
+        ...prev,
+        voucherNo: vch,
         slipNo: slp,
         mpdId: prev.mpdId || defaultMpdId,
         mpdName: prev.mpdName || defaultMpdName
@@ -645,7 +761,7 @@ export function CreditSales({
     // Find matching MPD and Nozzle IDs from the loaded lists
     let mappedMpdId = '';
     let mappedNozzleId = '';
-    
+
     if (mpds.length > 0 && record.mpdName) {
       const foundMpd = mpds.find(m => m.mpdName === record.mpdName);
       if (foundMpd) {
@@ -710,7 +826,7 @@ export function CreditSales({
     // Find matching MPD and Nozzle IDs from the loaded lists
     let mappedMpdId = '';
     let mappedNozzleId = '';
-    
+
     if (mpds.length > 0 && record.mpdName) {
       const foundMpd = mpds.find(m => m.mpdName === record.mpdName);
       if (foundMpd) {
@@ -958,7 +1074,7 @@ export function CreditSales({
         <td style="padding:6px 8px;border:1px solid #cbd5e1;font-weight:500">${r.customerName}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;font-family:monospace">${r.vehicleNo}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1">${r.productName}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right;font-family:monospace;font-weight:bold;color:#1d4ed8">₹${r.totalAmount.toLocaleString('en-IN',{minimumFractionDigits:2})}</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right;font-family:monospace;font-weight:bold;color:#1d4ed8">₹${r.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>`;
     });
     const htmlContent = `<html><head><title>Credit Sales Report</title><style>
@@ -1039,7 +1155,7 @@ export function CreditSales({
   if (embeddedModalOnly) {
     if (!showModal) return null;
     return (
-      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if (!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -1544,7 +1660,7 @@ export function CreditSales({
       {/* ════════════════════════════════════════════════════
           ADD / EDIT / VIEW MODAL
       ════════════════════════════════════════════════════ */}
-      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if(!open) onCloseModal?.(); }}>
+      <Dialog open={showModal} onOpenChange={(open) => { setShowModal(open); if (!open) onCloseModal?.(); }}>
         <DialogContent
           className="flex flex-col overflow-hidden p-0"
           style={{ maxWidth: '1100px', width: '92vw', maxHeight: '90vh' }}
@@ -1557,8 +1673,8 @@ export function CreditSales({
                 {modalMode === 'add'
                   ? 'Add New Credit Sale'
                   : modalMode === 'edit'
-                  ? 'Edit Credit Sale'
-                  : 'Credit Sale Details'}
+                    ? 'Edit Credit Sale'
+                    : 'Credit Sale Details'}
               </DialogTitle>
             </div>
           </DialogHeader>
@@ -1698,7 +1814,7 @@ export function CreditSales({
                           const displayList = customerSearch.trim()
                             ? customerSuggestions
                             : allCustomers.slice(0, 10);
-                          
+
                           if (displayList.length === 0) {
                             return (
                               <div className="px-3.5 py-2 text-xs text-muted-foreground italic">
@@ -1725,8 +1841,8 @@ export function CreditSales({
                                   setForm(prev => {
                                     const updated = { ...prev, vehicleNo: formatted };
                                     if (firstVeh.fuelType) {
-                                      const matchedProduct = products.find(p => 
-                                        p.category === 'Fuel' && 
+                                      const matchedProduct = products.find(p =>
+                                        p.category === 'Fuel' &&
                                         p.name.toLowerCase().includes(firstVeh.fuelType.toLowerCase())
                                       );
                                       if (matchedProduct) {
@@ -1804,7 +1920,7 @@ export function CreditSales({
                           const displayList = vehicleSearch.trim()
                             ? vehicleSuggestions
                             : customerVehicles.slice(0, 10);
-                          
+
                           if (displayList.length === 0) {
                             return (
                               <div className="px-3.5 py-2 text-xs text-muted-foreground italic">
@@ -1824,11 +1940,11 @@ export function CreditSales({
                                   setVehicleSearch(formatted);
                                   setForm(prev => {
                                     const updated = { ...prev, vehicleNo: formatted };
-                                    
+
                                     // Auto-select product based on vehicle fuelType
                                     if (v.fuelType) {
-                                      const matchedProduct = products.find(p => 
-                                        p.category === 'Fuel' && 
+                                      const matchedProduct = products.find(p =>
+                                        p.category === 'Fuel' &&
                                         p.name.toLowerCase().includes(v.fuelType.toLowerCase())
                                       );
                                       if (matchedProduct) {
@@ -1862,7 +1978,91 @@ export function CreditSales({
               </div>
 
               {/* ─────────────────────────────────
-                  SECTION 2: PRODUCT & SALE DETAILS (5 Columns)
+                  SECTION 2: DISPENSER ASSIGNMENT
+              ───────────────────────────────── */}
+              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
+                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Dispenser Assignment
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* MPD */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-mpd" className="text-xs font-medium">
+                      MPD (Dispenser) <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Select
+                      value={form.mpdId || 'NONE'}
+                      onValueChange={val => {
+                        if (val === 'NONE') return;
+                        handleMpdChange(val);
+                      }}
+                      disabled={isView || (isEmbedded && !!resolvedMpdName)}
+                    >
+                      <SelectTrigger id="cs-mpd" className="h-9 text-xs" tabIndex={4}>
+                        <SelectValue placeholder="-- Select MPD --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">-- Select MPD --</SelectItem>
+                        {mpds.length === 0 ? (
+                          <SelectItem value="_empty" disabled>No MPDs in master</SelectItem>
+                        ) : (
+                          mpds.map(m => (
+                            <SelectItem key={m.id} value={m.id}>
+                              {m.mpdName} ({m.numberOfNozzles} nozzles)
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Nozzle */}
+                  <div className="space-y-1">
+                    <Label htmlFor="cs-nozzle" className="text-xs font-medium">
+                      Nozzle <span className="text-red-500 font-bold">*</span>
+                    </Label>
+                    <Select
+                      value={form.nozzleId || 'NONE'}
+                      onValueChange={val => {
+                        if (val === 'NONE') return;
+                        const n = availableNozzles.find(nz => nz.id === val || nz.nozzleName === val);
+                        setForm(prev => ({
+                          ...prev,
+                          nozzleId: val,
+                          nozzleName: n?.nozzleName ?? ''
+                        }));
+                        if (n) {
+                          autoSelectProductForNozzle(n);
+                        }
+                      }}
+                      disabled={isView || !form.mpdId}
+                    >
+                      <SelectTrigger id="cs-nozzle" className="h-9 text-xs" tabIndex={5}>
+                        <SelectValue placeholder={form.mpdId ? '-- Select Nozzle --' : 'Select an MPD first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">-- Select Nozzle --</SelectItem>
+                        {availableNozzles.length === 0 ? (
+                          <SelectItem value="_empty" disabled>
+                            {form.mpdId ? 'No nozzles configured' : 'Select an MPD first'}
+                          </SelectItem>
+                        ) : (
+                          availableNozzles.map(nz => (
+                            <SelectItem key={nz.id ?? nz.nozzleName} value={nz.id ?? nz.nozzleName}>
+                              {nz.nozzleName}
+                              {nz.fuelType && <span className="text-muted-foreground ml-1">· {nz.fuelType}</span>}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* ─────────────────────────────────
+                  SECTION 3: PRODUCT & SALE DETAILS (5 Columns)
               ───────────────────────────────── */}
               <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
                 <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -1884,7 +2084,7 @@ export function CreditSales({
                       }}
                       disabled={isView}
                     >
-                      <SelectTrigger id="cs-category" className="h-9 text-xs" tabIndex={4}>
+                      <SelectTrigger id="cs-category" className="h-9 text-xs" tabIndex={6}>
                         <SelectValue placeholder="-- Category --" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1916,7 +2116,7 @@ export function CreditSales({
                       }}
                       disabled={isView || !form.productCategory}
                     >
-                      <SelectTrigger id="cs-product" className="h-9 text-xs" tabIndex={5}>
+                      <SelectTrigger id="cs-product" className="h-9 text-xs" tabIndex={7}>
                         <SelectValue placeholder={form.productCategory ? '-- Select --' : 'Category first'} />
                       </SelectTrigger>
                       <SelectContent>
@@ -1954,7 +2154,7 @@ export function CreditSales({
                           setForm(prev => ({ ...prev, rate: e.target.value, quantity: '', totalAmount: '' }));
                         }}
                         disabled={isView || form.productCategory === 'Fuel'}
-                        tabIndex={6}
+                        tabIndex={8}
                         className={`h-9 text-xs pl-6 text-right font-mono ${(isView || form.productCategory === 'Fuel') ? 'bg-muted' : ''}`}
                         onWheel={e => e.currentTarget.blur()}
                         required={!isView}
@@ -1976,7 +2176,7 @@ export function CreditSales({
                       value={form.quantity}
                       onChange={e => handleQuantityChange(e.target.value)}
                       disabled={isView}
-                      tabIndex={7}
+                      tabIndex={9}
                       className="h-9 text-xs text-right font-mono"
                       onWheel={e => e.currentTarget.blur()}
                     />
@@ -1997,87 +2197,6 @@ export function CreditSales({
                       tabIndex={-1}
                       className="h-9 text-xs text-right font-mono font-bold text-primary bg-muted/60"
                     />
-                  </div>
-                </div>
-              </div>
-
-              {/* ─────────────────────────────────
-                  SECTION 3: DISPENSER ASSIGNMENT
-              ───────────────────────────────── */}
-              <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-                <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Dispenser Assignment
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* MPD */}
-                  <div className="space-y-1">
-                    <Label htmlFor="cs-mpd" className="text-xs font-medium">
-                      MPD (Dispenser) <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <Select
-                      value={form.mpdId || 'NONE'}
-                      onValueChange={val => {
-                        if (val === 'NONE') return;
-                        handleMpdChange(val);
-                      }}
-                      disabled={isView || (isEmbedded && !!resolvedMpdName)}
-                    >
-                      <SelectTrigger id="cs-mpd" className="h-9 text-xs" tabIndex={8}>
-                        <SelectValue placeholder="-- Select MPD --" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">-- Select MPD --</SelectItem>
-                        {mpds.length === 0 ? (
-                          <SelectItem value="_empty" disabled>No MPDs in master</SelectItem>
-                        ) : (
-                          mpds.map(m => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.mpdName} ({m.numberOfNozzles} nozzles)
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Nozzle */}
-                  <div className="space-y-1">
-                    <Label htmlFor="cs-nozzle" className="text-xs font-medium">
-                      Nozzle <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <Select
-                      value={form.nozzleId || 'NONE'}
-                      onValueChange={val => {
-                        if (val === 'NONE') return;
-                        const n = availableNozzles.find(nz => nz.id === val);
-                        setForm(prev => ({
-                          ...prev,
-                          nozzleId: val,
-                          nozzleName: n?.nozzleName ?? ''
-                        }));
-                      }}
-                      disabled={isView || !form.mpdId}
-                    >
-                      <SelectTrigger id="cs-nozzle" className="h-9 text-xs" tabIndex={9}>
-                        <SelectValue placeholder={form.mpdId ? '-- Select Nozzle --' : 'Select an MPD first'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">-- Select Nozzle --</SelectItem>
-                        {availableNozzles.length === 0 ? (
-                          <SelectItem value="_empty" disabled>
-                            {form.mpdId ? 'No nozzles configured' : 'Select an MPD first'}
-                          </SelectItem>
-                        ) : (
-                          availableNozzles.map(nz => (
-                            <SelectItem key={nz.id ?? nz.nozzleName} value={nz.id ?? nz.nozzleName}>
-                              {nz.nozzleName}
-                              {nz.fuelType && <span className="text-muted-foreground ml-1">· {nz.fuelType}</span>}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
                   </div>
                 </div>
               </div>
