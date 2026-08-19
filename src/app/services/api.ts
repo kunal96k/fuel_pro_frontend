@@ -1442,6 +1442,7 @@ export interface MpdReconciliationItem {
   shortageReason?: string;
   status?: 'Paid' | 'Pending' | string;
   amount: number;
+  paidDate?: string;
 }
 
 export interface MpdReconciliationRecord {
@@ -1455,6 +1456,7 @@ export interface MpdReconciliationRecord {
   shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
   shortageReason?: string;
   status?: 'Paid' | 'Pending' | string;
+  paidDate?: string;
   items?: MpdReconciliationItem[];
   roundUp?: number;
   createdAt?: string;
@@ -1476,6 +1478,58 @@ export async function fetchExistingMpdReconciliation(date: string, shiftName: st
   if (res.status === 204 || res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch existing reconciliation summary (${res.status})`);
   return await res.json();
+}
+
+export async function fetchPaginatedReconciliationsApi(params: {
+  search?: string;
+  mpdName?: string;
+  status?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sort?: string;
+}): Promise<PaginatedResponse<MpdReconciliationRecord>> {
+  const query = new URLSearchParams();
+  if (params.search) query.append('search', params.search);
+  if (params.mpdName) query.append('mpdName', params.mpdName);
+  if (params.status) query.append('status', params.status);
+  if (params.fromDate) query.append('fromDate', params.fromDate);
+  if (params.toDate) query.append('toDate', params.toDate);
+  query.append('page', String(params.page ?? 0));
+  query.append('size', String(params.size ?? 25));
+  query.append('sort', params.sort ?? 'date,desc');
+
+  const res = await fetch(`${API_BASE_URL}/reconciliations?${query.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch paginated reconciliations (${res.status})`);
+  return await res.json();
+}
+
+export async function fetchCumulativeReconciliationsApi(mpdName?: string, upToDate?: string): Promise<{ overallShortageSum: number; paidShortageSum: number; overallRoundUpSum: number }> {
+  const query = new URLSearchParams();
+  if (mpdName) query.append('mpdName', mpdName);
+  if (upToDate) query.append('upToDate', upToDate);
+
+  const res = await fetch(`${API_BASE_URL}/reconciliations/cumulative?${query.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch cumulative reconciliation totals (${res.status})`);
+  return await res.json();
+}
+
+export async function updateMpdReconciliationApi(id: number | string, payload: MpdReconciliationRecord): Promise<MpdReconciliationRecord> {
+  const res = await fetch(`${API_BASE_URL}/reconciliations/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Failed to update reconciliation record (${res.status})`);
+  return await res.json();
+}
+
+export async function deleteMpdReconciliationApi(id: string | number): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/reconciliations/${id}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error(`Failed to delete reconciliation record (${res.status})`);
 }
 
 // --- Own Usage Interfaces ---
@@ -1733,6 +1787,28 @@ export interface ShiftSettlementRecord {
   date: string;
   time: string;
   remarks?: string;
+}
+
+export async function fetchSettlementsAll(toDate?: string): Promise<ShiftSettlementRecord[]> {
+  const query = new URLSearchParams({ size: '100000' });
+  if (toDate) query.append('toDate', toDate);
+  const res = await fetch(`${API_BASE_URL}/settlements?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  const list = data.content || data || [];
+  return list.map((item: any) => ({
+    id: String(item.id),
+    settlementNo: item.settlementNo ? item.settlementNo : `SET-${(item.date || '2026').slice(0, 4)}-${String(item.id).padStart(4, '0')}`,
+    mpdId: item.mpdId,
+    mpdName: item.mpdName,
+    shiftName: item.shiftName,
+    paymentMethod: item.paymentMethod,
+    amount: Number(item.amount || 0),
+    referenceNo: item.referenceNo || '',
+    date: item.date || '',
+    time: item.time || '',
+    remarks: item.remarks || '',
+  }));
 }
 
 export async function fetchSettlementsByMpd(mpdName: string): Promise<ShiftSettlementRecord[]> {

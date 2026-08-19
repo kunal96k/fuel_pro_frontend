@@ -1490,14 +1490,16 @@ export function CreditSales({
             <table className="w-full">
               <thead className="bg-muted/50 border-b border-border">
                 <tr>
-                  <th className="w-12 text-center p-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.size === paginated.length && paginated.length > 0}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 cursor-pointer align-middle rounded border-border"
-                    />
-                  </th>
+                  {!isEmbedded && (
+                    <th className="w-12 text-center p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === paginated.length && paginated.length > 0}
+                        onChange={handleSelectAll}
+                        className="w-4 h-4 cursor-pointer align-middle rounded border-border"
+                      />
+                    </th>
+                  )}
                   <th className="w-16 text-left p-4 font-medium text-muted-foreground">S.No</th>
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('customerName')}>
                     <div className="flex items-center gap-1.5">
@@ -1535,14 +1537,16 @@ export function CreditSales({
               <tbody className="divide-y divide-border">
                 {paginated.map((record, index) => (
                   <tr key={record.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="w-12 text-center p-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(record.id)}
-                        onChange={() => handleSelectRecord(record.id)}
-                        className="w-4 h-4 cursor-pointer align-middle rounded border-border"
-                      />
-                    </td>
+                    {!isEmbedded && (
+                      <td className="w-12 text-center p-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(record.id)}
+                          onChange={() => handleSelectRecord(record.id)}
+                          className="w-4 h-4 cursor-pointer align-middle rounded border-border"
+                        />
+                      </td>
+                    )}
                     <td className="w-16 p-4 font-medium text-muted-foreground">
                       {currentPage * pageSize + index + 1}
                     </td>
@@ -1607,7 +1611,7 @@ export function CreditSales({
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
                 <tr>
-                  <td colSpan={7} className="p-4 text-left font-semibold">
+                  <td colSpan={isEmbedded ? 6 : 7} className="p-4 text-left font-semibold">
                     Page Total ({paginated.length} records)
                   </td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">

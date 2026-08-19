@@ -1019,9 +1019,11 @@ export function OwnUsage({
             <table className="w-full">
               <thead className="bg-muted/50 border-b border-border">
                 <tr>
-                  <th className="w-12 text-center p-4">
-                    <input type="checkbox" checked={selectedIds.size === records.length && records.length > 0} onChange={handleSelectAll} className="w-4 h-4 cursor-pointer align-middle rounded border-border" />
-                  </th>
+                  {!isEmbedded && (
+                    <th className="w-12 text-center p-4">
+                      <input type="checkbox" checked={selectedIds.size === records.length && records.length > 0} onChange={handleSelectAll} className="w-4 h-4 cursor-pointer align-middle rounded border-border" />
+                    </th>
+                  )}
                   <th className="w-16 text-left p-4 font-medium text-muted-foreground">S.No</th>
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('slipNo')}>
                     <div className="flex items-center gap-1.5"><Hash className="w-3.5 h-3.5 text-muted-foreground" /> Slip No<SortIcon field="slipNo" /></div>
@@ -1048,9 +1050,11 @@ export function OwnUsage({
               <tbody className="divide-y divide-border">
                 {records.map((rec, index) => (
                   <tr key={rec.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="w-12 text-center p-4">
-                      <input type="checkbox" checked={selectedIds.has(rec.id)} onChange={() => handleSelectRecord(rec.id)} className="w-4 h-4 cursor-pointer align-middle rounded border-border" />
-                    </td>
+                    {!isEmbedded && (
+                      <td className="w-12 text-center p-4">
+                        <input type="checkbox" checked={selectedIds.has(rec.id)} onChange={() => handleSelectRecord(rec.id)} className="w-4 h-4 cursor-pointer align-middle rounded border-border" />
+                      </td>
+                    )}
                     <td className="w-16 p-4 font-medium text-muted-foreground">{currentPage * pageSize + index + 1}</td>
                     <td className="p-4 font-mono text-sm text-foreground">{rec.slipNo}</td>
                     <td className="p-4">
@@ -1090,7 +1094,7 @@ export function OwnUsage({
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
                 <tr>
-                  <td colSpan={8} className="p-4 text-left font-semibold">Page Total ({records.length} records)</td>
+                  <td colSpan={isEmbedded ? 7 : 8} className="p-4 text-left font-semibold">Page Total ({records.length} records)</td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">{formatCurrency(records.reduce((s, r) => s + r.totalAmount, 0))}</td>
                   <td colSpan={1} className="p-4 text-muted-foreground text-left">
                     Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
