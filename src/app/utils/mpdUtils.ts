@@ -1,14 +1,38 @@
 export interface MPDLike {
-  id?: string;
+  id?: string | number;
   mpdName: string;
+}
+
+export function extractMpdNumber(name?: string): number {
+  if (!name || typeof name !== 'string') return 999;
+  const clean = name.trim();
+  const match = clean.match(/(?:dispenser|mpd)\s*(\d+)/i) || clean.match(/\b\d+\b/);
+  if (match && match[1]) {
+    return parseInt(match[1], 10);
+  }
+  if (match && match[0]) {
+    return parseInt(match[0], 10);
+  }
+  return 999;
 }
 
 export function sortMpdsDeterministically<T extends MPDLike>(list: T[]): T[] {
   return [...list].sort((a, b) => {
-    const numA = parseInt((a.mpdName.match(/\d+/) || ['999'])[0], 10);
-    const numB = parseInt((b.mpdName.match(/\d+/) || ['999'])[0], 10);
-    if (numA !== numB) return numA - numB;
-    return a.mpdName.localeCompare(b.mpdName);
+    const numA = extractMpdNumber(a.mpdName);
+    const numB = extractMpdNumber(b.mpdName);
+
+    if (numA !== numB) {
+      return numA - numB;
+    }
+
+    const idA = a.id != null ? parseInt(String(a.id).replaceAll(/\D+/g, ''), 10) : NaN;
+    const idB = b.id != null ? parseInt(String(b.id).replaceAll(/\D+/g, ''), 10) : NaN;
+
+    if (!isNaN(idA) && !isNaN(idB) && idA !== idB) {
+      return idA - idB;
+    }
+
+    return (a.mpdName || '').localeCompare(b.mpdName || '');
   });
 }
 
@@ -16,19 +40,26 @@ export function resolveMpdNameFromList<T extends MPDLike>(rawName?: string, mpdL
   if (!rawName || !rawName.trim()) return '';
   const clean = rawName.trim();
 
-  // 1. Direct exact or case-insensitive name match with existing MPDs
   if (mpdList && mpdList.length > 0) {
-    const exact = mpdList.find(m => m.mpdName.toLowerCase() === clean.toLowerCase());
+    // 1. Direct exact case-insensitive name match
+    const exact = mpdList.find(m => m.mpdName.trim().toLowerCase() === clean.toLowerCase());
     if (exact) return exact.mpdName;
-  }
 
-  // 2. If code like "MPD_1", "MPD 1", "MPD_2", "MPD 2"
-  const match = clean.match(/^MPD_?(\d+)$/i);
-  if (match && mpdList && mpdList.length > 0) {
-    const tabIndex = parseInt(match[1], 10) - 1;
-    const sorted = sortMpdsDeterministically(mpdList);
-    if (tabIndex >= 0 && tabIndex < sorted.length) {
-      return sorted[tabIndex].mpdName;
+    // 2. Direct ID match if clean is numeric
+    const cleanIdNum = clean.replaceAll(/\D+/g, '');
+    if (cleanIdNum) {
+      const matchById = mpdList.find(m => m.id != null && String(m.id).replaceAll(/\D+/g, '') === cleanIdNum);
+      if (matchById) return matchById.mpdName;
+    }
+
+    // 3. If code like "MPD_1", "MPD 1", "MPD_2", "MPD 2"
+    const match = clean.match(/^MPD_?(\d+)$/i);
+    if (match) {
+      const tabIndex = parseInt(match[1], 10) - 1;
+      const sorted = sortMpdsDeterministically(mpdList);
+      if (tabIndex >= 0 && tabIndex < sorted.length) {
+        return sorted[tabIndex].mpdName;
+      }
     }
   }
 
@@ -39,21 +70,59 @@ export function isStrictMpdMatch(recMpd?: any, targetMpd?: string): boolean {
   if (!targetMpd || !targetMpd.trim()) return true;
   if (!recMpd) return false;
 
+  // 1. Match by numeric mpdId if object has mpdId
+  if (typeof recMpd === 'object' && recMpd.mpdId != null && targetMpd) {
+    const rId = String(recMpd.mpdId).replaceAll(/\D+/g, '');
+    const tId = targetMpd.replaceAll(/\D+/g, '');
+    if (rId && tId && rId === tId) return true;
+  }
+
   const recStr = typeof recMpd === 'object'
-    ? (recMpd.mpdName || recMpd.mpd || recMpd.mpdId || recMpd.dispenser || '')
+    ? (recMpd.mpdName || recMpd.mpd || recMpd.dispenser || '')
     : String(recMpd);
 
   if (!recStr || !recStr.trim()) return false;
 
-  const rNorm = recStr.trim().toLowerCase();
-  const tNorm = targetMpd.trim().toLowerCase();
+  const rNorm = recStr.replaceAll(/_/g, ' ').trim().toLowerCase();
+  const tNorm = targetMpd.replaceAll(/_/g, ' ').trim().toLowerCase();
 
-  // Exact name or substring match
-  if (rNorm === tNorm || rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
+  // 2. Exact name match (case-insensitive)
+  if (rNorm === tNorm) return true;
 
-  // Numerical dispenser / MPD number match (e.g. Dispenser 1 == MPD 1 == 1)
-  const rNum = recStr.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || recStr.match(/\b\d+\b/)?.[0];
-  const tNum = targetMpd.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || targetMpd.match(/\b\d+\b/)?.[0];
+  // 3. Tab alias match (e.g. "mpd 1" vs "mpd_1")
+  const cleanR = rNorm.replace(/\s+/g, '');
+  const cleanT = tNorm.replace(/\s+/g, '');
+  if (cleanR === cleanT) return true;
 
-  return Boolean(rNum && tNum && rNum === tNum);
+  return false;
+}
+
+export function isSameShift(shift1?: string, shift2?: string): boolean {
+  if (!shift1 || !shift2) return false;
+  const s1 = shift1.trim().toLowerCase();
+  const s2 = shift2.trim().toLowerCase();
+
+  // 1. Direct exact match
+  if (s1 === s2) return true;
+
+  // 2. Match base name without time brackets/dots e.g. "Morning Shift (06:00-14:00)" vs "Morning Shift..."
+  const base1 = s1.split('(')[0].replace(/\.+$/, '').trim();
+  const base2 = s2.split('(')[0].replace(/\.+$/, '').trim();
+  if (base1 && base2 && (base1 === base2 || base1.includes(base2) || base2.includes(base1))) {
+    return true;
+  }
+
+  // 3. Substring match
+  if (s1.includes(s2) || s2.includes(s1)) {
+    return true;
+  }
+
+  // 4. Number match for numbered shifts (e.g. "Shift 1" vs "Shift 1 (Morning)")
+  const num1 = s1.match(/\b\d+\b/)?.[0];
+  const num2 = s2.match(/\b\d+\b/)?.[0];
+  if (num1 && num2 && num1 === num2) {
+    return true;
+  }
+
+  return false;
 }

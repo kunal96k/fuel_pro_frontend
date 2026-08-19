@@ -40,7 +40,7 @@ import {
   fetchOwnUsages,
   fetchCashCollections
 } from '../services/api';
-import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch, sortMpdsDeterministically, isSameShift } from '../utils/mpdUtils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -988,21 +988,17 @@ function MeterReadingTable({
         const targetMpdNum = targetMpdStr.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || targetMpdStr.match(/\d+/)?.[0];
 
         const isMpdMatch = (r: any) => {
-          if (!targetMpdStr && !mpd?.id) return true;
-          if (r.mpdId && mpd?.id && String(r.mpdId).replaceAll(/\D+/g, '') === String(mpd.id).replaceAll(/\D+/g, '')) {
-            return true;
-          }
-          const rStr = r.mpdName || r.mpd || r.dispenser || '';
-          if (!rStr) return false;
-          const rNorm = String(rStr).replaceAll(/_/g, ' ').trim().toLowerCase();
-          const tNorm = targetMpdStr.replaceAll(/_/g, ' ').trim().toLowerCase();
-          if (rNorm === tNorm) return true;
-          const rNum = rNorm.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || rNorm.match(/\d+/)?.[0];
-          return Boolean(rNum && targetMpdNum && rNum === targetMpdNum);
+          return isStrictMpdMatch(r, mpd?.mpdName || mpdName);
+        };
+
+        const isCurrentShift = (r: any) => {
+          if (!r.date || !selectedShift) return false;
+          if (r.date !== targetDate) return false;
+          return isSameShift(r.shiftName || r.shift, selectedShift);
         };
 
         records.forEach((r: any) => {
-          if (!isMpdMatch(r)) return;
+          if (!isMpdMatch(r) || isCurrentShift(r)) return;
           const fuel = r.productName || r.fuelType || 'Fuel';
           const units = Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0;
           const amount = Number(r.totalAmount) || Number(r.netAmount) || 0;
@@ -1021,7 +1017,7 @@ function MeterReadingTable({
       }
     };
     loadHistoricalFuelTotals();
-  }, [targetDate, mpdName, mpd?.id]);
+  }, [targetDate, mpdName, mpd?.id, selectedShift]);
 
   const calculateSales = (srNo: number, openingReading: number) => {
     const rawClosing = closingReadings[srNo];
@@ -2186,20 +2182,7 @@ function MPDTabContent({
       const mpdNameForFilter = resolvedMpdName || mpdName;
 
       const isLocalMpdMatch = (rec?: any, tgt?: string) => {
-        if (!tgt || !rec) return false;
-        if (typeof rec === 'object' && rec.mpdId && mpd?.id) {
-          const recIdNum = String(rec.mpdId).replaceAll(/\D+/g, '');
-          const cleanMpdIdNum = String(mpd.id).replaceAll(/\D+/g, '');
-          if (recIdNum && cleanMpdIdNum && recIdNum === cleanMpdIdNum) return true;
-        }
-        const recStr = typeof rec === 'object' ? (rec.mpdName || rec.mpd || rec.dispenser || '') : String(rec);
-        if (!recStr || !recStr.trim()) return false;
-        const rNorm = recStr.replaceAll(/_/g, ' ').trim().toLowerCase();
-        const tNorm = tgt.replaceAll(/_/g, ' ').trim().toLowerCase();
-        if (rNorm === tNorm) return true;
-        const rNum = rNorm.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || rNorm.match(/\d+/)?.[0];
-        const tNum = tNorm.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || tNorm.match(/\d+/)?.[0];
-        return Boolean(rNum && tNum && rNum === tNum);
+        return isStrictMpdMatch(rec, tgt);
       };
 
       const isUpToSelectedDate = (recDate?: string) => {
@@ -2219,22 +2202,35 @@ function MPDTabContent({
           let filteredMeter = (meterRes.content || []).filter((r: any) =>
             isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
           );
-          const meterTotal = filteredMeter.reduce((sum: number, r: any) =>
-            sum + (Number(r.totalAmount) || Number(r.netAmount) || 0), 0);
-          setOverallMeterTotal(meterTotal);
 
           const fuelGroup: Record<string, { testing: number; units: number; amount: number; rateSum: number; count: number }> = {};
+          let totalOverallMeterAmt = 0;
+
           filteredMeter.forEach((r: any) => {
             const pName = r.productName || r.fuelType || 'Fuel';
             if (!fuelGroup[pName]) fuelGroup[pName] = { testing: 0, units: 0, amount: 0, rateSum: 0, count: 0 };
-            fuelGroup[pName].testing += Number(r.testingQuantity) || 0;
-            fuelGroup[pName].units += Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0;
-            fuelGroup[pName].amount += Number(r.totalAmount) || Number(r.netAmount) || 0;
-            if (r.rate || r.ratePerLitre) {
-              fuelGroup[pName].rateSum += Number(r.rate || r.ratePerLitre || 0);
+            
+            const testing = Number(r.testingQuantity) || 0;
+            const open = Number(r.openingReading) || 0;
+            const close = Number(r.closingReading) || 0;
+            const rate = Number(r.rate || r.ratePerLitre) || getFuelRate(pName, rateMaster) || 0;
+
+            let units = (close > open) ? (close - open) : (Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0);
+            let amount = (units > 0 && rate > 0) ? (units * rate) : (Number(r.totalAmount) || Number(r.netAmount) || 0);
+
+            totalOverallMeterAmt += amount;
+
+            fuelGroup[pName].testing += testing;
+            fuelGroup[pName].units += units;
+            fuelGroup[pName].amount += amount;
+            if (rate > 0) {
+              fuelGroup[pName].rateSum += rate;
               fuelGroup[pName].count += 1;
             }
           });
+
+          setOverallMeterTotal(totalOverallMeterAmt);
+
           const fuelList = Object.keys(fuelGroup).map(p => ({
             product: p,
             testing: fuelGroup[p].testing,
@@ -2706,8 +2702,14 @@ function MPDSummaryTab({
   const [shortageFromDate, setShortageFromDate] = React.useState('');
   const [shortageToDate, setShortageToDate] = React.useState('');
   const [shortageStatusFilter, setShortageStatusFilter] = React.useState<'ALL' | 'Paid' | 'Pending'>('ALL');
-  const [shortageMpdFilter, setShortageMpdFilter] = React.useState('ALL');
+  const [shortageMpdFilter, setShortageMpdFilter] = React.useState(() => resolvedMpdName || 'ALL');
   const [shortageServerPage, setShortageServerPage] = React.useState(0);
+
+  React.useEffect(() => {
+    if (resolvedMpdName) {
+      setShortageMpdFilter(resolvedMpdName);
+    }
+  }, [resolvedMpdName]);
   const [shortageServerRecords, setShortageServerRecords] = React.useState<MpdReconciliationRecord[]>([]);
   const [shortageServerTotalPages, setShortageServerTotalPages] = React.useState(0);
   const [shortageServerTotalElements, setShortageServerTotalElements] = React.useState(0);
@@ -3029,9 +3031,9 @@ function MPDSummaryTab({
         if (pName === prodLower) return true;
         if (pName.includes(prodLower) || prodLower.includes(pName)) return true;
         if ((prodLower.includes('petrol') || prodLower.includes('ms') || prodLower.includes('xp95')) &&
-            (pName.includes('petrol') || pName.includes('ms') || pName.includes('xp95'))) return true;
+          (pName.includes('petrol') || pName.includes('ms') || pName.includes('xp95'))) return true;
         if ((prodLower.includes('diesel') || prodLower.includes('hsd')) &&
-            (pName.includes('diesel') || pName.includes('hsd'))) return true;
+          (pName.includes('diesel') || pName.includes('hsd'))) return true;
         return false;
       });
 
@@ -3473,8 +3475,8 @@ function MPDSummaryTab({
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${item.status === 'Paid'
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                             }`}>
                             Draft ({item.status || 'Pending'})
                           </span>
@@ -3552,11 +3554,10 @@ function MPDSummaryTab({
                               {itemRow.shortageAction}
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
-                                recStatus === 'Paid'
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${recStatus === 'Paid'
                                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                                   : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              }`}>
+                                }`}>
                                 {recStatus}
                               </span>
                             </td>
@@ -3616,18 +3617,18 @@ function MPDSummaryTab({
                                       if (confirm(`Delete shortage entry${empNameStr} (${itemRow.date} - ${itemRow.shiftName})?`)) {
                                         try {
                                           const parentRec = shortageServerRecords.find(r => r.id === itemRow.recId);
-                                          
+
                                           if (parentRec && parentRec.items && parentRec.items.length > 1 && itemRow.itemIndex !== undefined) {
                                             // Multiple items: remove ONLY the targeted item and update parent
                                             const remainingItems = parentRec.items.filter((_, idx) => idx !== itemRow.itemIndex);
                                             const newTotalShortage = remainingItems.reduce((sum, i) => sum + (i.amount || 0), 0);
-                                            
+
                                             const updatedPayload: any = {
                                               ...parentRec,
                                               employeeShortage: newTotalShortage,
                                               items: remainingItems
                                             };
-                                            
+
                                             await updateMpdReconciliationApi(parentRec.id!, updatedPayload);
                                             toast.success(`Shortage entry${empNameStr} deleted successfully`);
                                           } else {
@@ -4068,21 +4069,19 @@ function MPDSummaryTab({
       </div>
 
       {/* Balance */}
-      <div className={`flex items-center justify-between px-5 py-4 rounded-lg border-2 ${
-        Math.abs(balance) < 0.01
+      <div className={`flex items-center justify-between px-5 py-4 rounded-lg border-2 ${Math.abs(balance) < 0.01
           ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800'
           : balance > 0
-          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
-          : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800'
-      }`}>
+            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+            : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800'
+        }`}>
         <span className="font-semibold text-base">Balance Amount - {resolvedMpdName}</span>
-        <span className={`text-xl font-bold font-mono ${
-          Math.abs(balance) < 0.01
+        <span className={`text-xl font-bold font-mono ${Math.abs(balance) < 0.01
             ? 'text-purple-700 dark:text-purple-300'
             : balance > 0
-            ? 'text-emerald-700 dark:text-emerald-300'
-            : 'text-red-700 dark:text-red-300'
-        }`}>
+              ? 'text-emerald-700 dark:text-emerald-300'
+              : 'text-red-700 dark:text-red-300'
+          }`}>
           {formatIndianCurrency(balance)}
         </span>
       </div>
@@ -5362,11 +5361,10 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
                           {itemRow.shortageAction}
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
-                            itemRow.status === 'Paid'
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${itemRow.status === 'Paid'
                               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                               : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          }`}>
+                            }`}>
                             {itemRow.status}
                           </span>
                         </td>
@@ -5443,7 +5441,8 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
           fetchMpdsAll(),
           fetchShiftsAll().catch(() => [])
         ]);
-        setMpds(mpdData);
+        const sortedMpds = sortMpdsDeterministically(mpdData || []);
+        setMpds(sortedMpds);
         if (shiftData && shiftData.length > 0) {
           setMasterShifts(shiftData);
         }
@@ -5498,6 +5497,18 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
     loadRates();
   }, [selectedDate]);
 
+  const [activeMainTab, setActiveMainTab] = React.useState(() => {
+    return localStorage.getItem('fuel_sale_active_maintab') || defaultTab || 'MPD_1';
+  });
+
+  const handleMainTabChange = (tab: string) => {
+    setActiveMainTab(tab);
+    localStorage.setItem('fuel_sale_active_maintab', tab);
+    if (tab === 'Summary') {
+      triggerRefreshTotals();
+    }
+  };
+
   const [activeSubTab, setActiveSubTab] = React.useState(() => {
     return localStorage.getItem('fuel_sale_active_subtab') || 'Meter Reading';
   });
@@ -5523,7 +5534,11 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
   const [allMpdsPaidShortagesTotal, setAllMpdsPaidShortagesTotal] = React.useState(0);
   const [allMpdsRoundUpTotal, setAllMpdsRoundUpTotal] = React.useState(0);
   const [allMpdsFuelSales, setAllMpdsFuelSales] = React.useState<Array<{ product: string; units: number; rate: number; amount: number }>>([]);
+  const [totalsRefreshKey, setTotalsRefreshKey] = React.useState(0);
   const [showSummaryShortageModal, setShowSummaryShortageModal] = React.useState(false);
+  const triggerRefreshTotals = React.useCallback(() => {
+    setTotalsRefreshKey(prev => prev + 1);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -5534,23 +5549,35 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
         const meterRes = await fetchMeterReadingsHistory({ size: 100000, toDate: targetDateVal });
         if (!cancelled && meterRes.content) {
           const validRows = meterRes.content.filter((r: any) => !r.date || r.date <= targetDateVal);
-          const meterTot = validRows.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || Number(r.netAmount) || 0), 0);
-          const meterVol = validRows.reduce((sum: number, r: any) => sum + (Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0), 0);
-          setAllMpdsMeterTotal(meterTot);
-          setAllMpdsMeterVolume(meterVol);
 
           const fuelGroup: Record<string, { testing: number; units: number; amount: number; rateSum: number; count: number }> = {};
+          let totalMeterSalesAmt = 0;
+          let totalMeterSalesVol = 0;
+
           validRows.forEach((r: any) => {
             const pName = r.productName || r.fuelType || 'Fuel';
             if (!fuelGroup[pName]) fuelGroup[pName] = { testing: 0, units: 0, amount: 0, rateSum: 0, count: 0 };
-            fuelGroup[pName].testing += Number(r.testingQuantity) || 0;
-            fuelGroup[pName].units += Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0;
-            fuelGroup[pName].amount += Number(r.totalAmount) || Number(r.netAmount) || 0;
-            if (r.rate || r.ratePerLitre) {
-              fuelGroup[pName].rateSum += Number(r.rate || r.ratePerLitre || 0);
+
+            const testing = Number(r.testingQuantity) || 0;
+            const rate = Number(r.rate || r.ratePerLitre) || getFuelRate(pName, rateMaster) || 0;
+            const units = Number(r.salesLiters) || (Number(r.closingReading) > Number(r.openingReading) ? Number(r.closingReading) - Number(r.openingReading) : (Number(r.salesQuantity) || 0));
+            const amount = Number(r.totalAmount) || (units * rate) || 0;
+
+            totalMeterSalesAmt += amount;
+            totalMeterSalesVol += units;
+
+            fuelGroup[pName].testing += testing;
+            fuelGroup[pName].units += units;
+            fuelGroup[pName].amount += amount;
+            if (rate > 0) {
+              fuelGroup[pName].rateSum += rate;
               fuelGroup[pName].count += 1;
             }
           });
+
+          setAllMpdsMeterTotal(totalMeterSalesAmt);
+          setAllMpdsMeterVolume(totalMeterSalesVol);
+
           const fuelList = Object.keys(fuelGroup).map(p => ({
             product: p,
             testing: fuelGroup[p].testing,
@@ -5640,7 +5667,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
 
     loadAllMpdsTotals();
     return () => { cancelled = true; };
-  }, [selectedDate, activeSubTab]);
+  }, [selectedDate, activeSubTab, activeMainTab, totalsRefreshKey]);
 
   const [now, setNow] = React.useState(() => new Date());
   React.useEffect(() => {
@@ -5679,13 +5706,27 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
 
   const scrollTabs = (direction: 'left' | 'right') => {
     if (tabsScrollRef.current) {
-      const amount = direction === 'left' ? -200 : 200;
-      tabsScrollRef.current.scrollBy({ left: amount, behavior: 'smooth' });
+      const scrollAmount = direction === 'left' ? -200 : 200;
+      tabsScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  const [refreshing, setRefreshing] = React.useState(false);
+  const handleManualRefresh = async () => {
+    try {
+      setRefreshing(true);
+      const currentDate = new Date().toISOString().slice(0, 10);
+      setSelectedDate(currentDate);
+      setNow(new Date());
+      triggerRefreshTotals();
+      toast.success('Refreshed data with latest real-time records!');
+    } finally {
+      setTimeout(() => setRefreshing(false), 500);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -5694,7 +5735,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             Record shift-wise nozzle meter readings, credit sales, own usage, settlements, and shift reconciliations
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3.5 py-1.5 bg-secondary/80 border rounded-lg shadow-sm h-9">
             <Calendar className="w-4 h-4 text-primary shrink-0" />
             <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Sales Date:</span>
@@ -5705,12 +5746,27 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Active Shift:</span>
             <span className="text-xs font-semibold text-foreground">{activeShiftName}</span>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            className="h-9 px-3 gap-1.5 text-xs font-semibold bg-background hover:bg-muted shadow-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-primary ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </Button>
         </div>
       </div>
 
       {/* Main Tabs Card */}
       <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
-        <Tabs defaultValue={defaultTab} className="w-full">
+        <Tabs
+          value={activeMainTab}
+          onValueChange={handleMainTabChange}
+          className="w-full"
+        >
           {/* Main MPD Tabs Header Bar - Vertically Centered Segmented Control */}
           <div className="border-b bg-muted/20 px-4 py-3 flex items-center justify-between gap-4">
             <div
@@ -5897,11 +5953,10 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                         allMpdsFuelSales.map((item, idx) => (
                           <tr key={idx} className="hover:bg-muted/20">
                             <td className="p-2.5">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
-                                item.product.toLowerCase().includes('petrol')
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${item.product.toLowerCase().includes('petrol')
                                   ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
                                   : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                              }`}>
+                                }`}>
                                 {item.product}
                               </span>
                             </td>
@@ -6041,7 +6096,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                 <div className="p-5 space-y-4">
                   {(() => {
                     const allMpdsTestingTotal = allMpdsFuelSales.reduce((sum, item) => sum + ((item.testing || 0) * (item.rate || 0)), 0);
-                    const grossAllMpdsMeterTotal = allMpdsMeterTotal + allMpdsTestingTotal;
+                    const grossAllMpdsMeterTotal = allMpdsMeterTotal;
                     const netCashSalesRevenue = grossAllMpdsMeterTotal - allMpdsCreditTotal - allMpdsSettlementsTotal - allMpdsDepositsTotal + allMpdsPaidShortagesTotal + allMpdsRoundUpTotal;
                     const internalUseExpensesTotal = allMpdsOwnUseTotal + allMpdsTestingTotal;
                     const rawAllMpdsFinalBalance = netCashSalesRevenue - internalUseExpensesTotal;
@@ -6052,20 +6107,20 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                     const bgClass = isZero
                       ? 'bg-purple-500/10 border-purple-500/30 text-purple-900 dark:text-purple-200'
                       : isPositive
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900 dark:text-emerald-200'
-                      : 'bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200';
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900 dark:text-emerald-200'
+                        : 'bg-red-500/10 border-red-500/30 text-red-900 dark:text-red-200';
 
                     const iconBgClass = isZero
                       ? 'bg-purple-500 text-white'
                       : isPositive
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-amber-500 text-white';
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-red-500 text-white';
 
                     const textClass = isZero
                       ? 'text-purple-700 dark:text-purple-300'
                       : isPositive
-                      ? 'text-emerald-700 dark:text-emerald-300'
-                      : 'text-amber-700 dark:text-amber-300';
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-red-700 dark:text-red-300';
 
                     return (
                       <>
