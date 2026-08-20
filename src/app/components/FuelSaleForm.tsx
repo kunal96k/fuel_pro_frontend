@@ -46,11 +46,11 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import {
-  Plus, Eye, Edit, Pencil, Trash2, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Plus, Eye, Edit, Pencil, Trash2, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   CreditCard, User, Clock, Package, IndianRupee, Droplet, Car, SlidersHorizontal,
   Layers, Calendar, Fuel, Save, Loader2, History, Download, FileText, Search, RefreshCw, AlertCircle,
   Building2, Wallet, UserCheck, CheckCircle2, AlertTriangle
@@ -103,7 +103,7 @@ const formatIndianCurrency = (amount: number) => {
 };
 
 export function getActiveShiftNameFromMaster(shifts: ShiftMaster[], now: Date = new Date()): string {
-  if (!shifts || shifts.length === 0) return 'Shift 1';
+  if (!shifts || shifts.length === 0) return '';
 
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -131,7 +131,7 @@ export function getActiveShiftNameFromMaster(shifts: ShiftMaster[], now: Date = 
     }
   }
 
-  return shifts[0]?.shiftName || 'Shift 1';
+  return shifts[0]?.shiftName || '';
 }
 
 const fuelBadgeStyle = (fuel?: string) => {
@@ -141,484 +141,6 @@ const fuelBadgeStyle = (fuel?: string) => {
   return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 font-medium';
 };
 
-function MeterReadingHistoryModal({
-  open,
-  onOpenChange,
-  mpdId,
-  mpdName
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  mpdId?: string;
-  mpdName?: string;
-}) {
-  const [readings, setReadings] = React.useState<MeterReading[]>([]);
-  const [summaryData, setSummaryData] = React.useState<MeterReadingSummaryDTO | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [searchTerm, setSearchTerm] = React.useState('');
-  const [shiftFilter, setShiftFilter] = React.useState('ALL');
-  const [fuelTypeFilter, setFuelTypeFilter] = React.useState('ALL');
-  const [fromDate, setFromDate] = React.useState('');
-  const [toDate, setToDate] = React.useState('');
-  const [page, setPage] = React.useState(0);
-  const [totalPages, setTotalPages] = React.useState(1);
-  const [totalElements, setTotalElements] = React.useState(0);
-  const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
-  const [fuelProducts, setFuelProducts] = React.useState<Product[]>([]);
-
-  const loadHistory = React.useCallback(async () => {
-    try {
-      setLoading(true);
-      const cleanMpdId = mpdId ? String(mpdId).replaceAll(/\D+/g, '') : undefined;
-      const [res, summaryRes] = await Promise.all([
-        fetchMeterReadingsHistory({
-          page,
-          size: 20,
-          search: searchTerm || undefined,
-          mpdId: cleanMpdId || undefined,
-          shiftName: shiftFilter !== 'ALL' ? shiftFilter : undefined,
-          fuelType: fuelTypeFilter !== 'ALL' ? fuelTypeFilter : undefined,
-          fromDate: fromDate || undefined,
-          toDate: toDate || undefined,
-          sortBy: 'date',
-          sortDir: 'desc'
-        }),
-        fetchMeterReadingsSummary({
-          search: searchTerm || undefined,
-          mpdId: cleanMpdId || undefined,
-          shiftName: shiftFilter !== 'ALL' ? shiftFilter : undefined,
-          fuelType: fuelTypeFilter !== 'ALL' ? fuelTypeFilter : undefined,
-          fromDate: fromDate || undefined,
-          toDate: toDate || undefined
-        })
-      ]);
-      setReadings(res.content || []);
-      setSummaryData(summaryRes);
-      setTotalPages(res.totalPages || 1);
-      setTotalElements(res.totalElements || 0);
-    } catch (err: any) {
-      console.error('Failed to load meter reading logs:', err);
-      toast.error('Failed to load meter reading history logs');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, searchTerm, mpdId, shiftFilter, fuelTypeFilter, fromDate, toDate]);
-
-  React.useEffect(() => {
-    if (open) {
-      loadHistory();
-      fetchShiftsAll().then(res => {
-        if (res && res.length > 0) setMasterShifts(res);
-      }).catch(err => console.error('Failed to load master shifts:', err));
-
-      fetchProducts({ size: 1000, category: 'Fuel' }).then(res => {
-        if (res && res.content) setFuelProducts(res.content);
-      }).catch(err => console.error('Failed to load fuel products:', err));
-    }
-  }, [open, loadHistory]);
-
-  const getRecordSalesLiters = (r: any): number => {
-    const directSales = Number(r.salesLiters ?? r.salesQuantity ?? 0);
-    if (directSales > 0) return directSales;
-    const op = Number(r.openingReading ?? 0);
-    const cl = Number(r.closingReading ?? 0);
-    if (cl > op) return cl - op;
-    return 0;
-  };
-
-  const getRecordTotalAmount = (r: any): number => {
-    const directAmt = Number(r.totalAmount ?? r.netAmount ?? 0);
-    if (directAmt > 0) return directAmt;
-    const sales = getRecordSalesLiters(r);
-    const rate = Number(r.ratePerLitre ?? r.rate ?? 0);
-    return sales * rate;
-  };
-
-  const downloadCSV = (data: MeterReading[]) => {
-    if (!data.length) { toast.warning('No records to export'); return; }
-    const headers = ['ID', 'Date', 'Shift', 'MPD', 'Nozzle', 'Fuel Type', 'Opening Reading', 'Closing Reading', 'Testing (L)', 'Sales (L)', 'Rate (₹)', 'Total Amount (₹)'];
-    const rows = data.map((r: any) => [
-      r.id || '',
-      r.date || '',
-      `"${r.shiftName || ''}"`,
-      `"${r.mpdName || ''}"`,
-      `"${r.nozzleName || ''}"`,
-      `"${r.fuelType || ''}"`,
-      r.openingReading ?? 0,
-      r.closingReading ?? 0,
-      r.testingQuantity ?? 0,
-      getRecordSalesLiters(r),
-      r.ratePerLitre ?? r.rate ?? 0,
-      getRecordTotalAmount(r)
-    ]);
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `meter_readings_audit_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Exported CSV logs successfully!');
-  };
-
-  const downloadXLS = (data: MeterReading[]) => {
-    if (!data.length) { toast.warning('No records to export'); return; }
-    const headers = ['ID\tDate\tShift\tMPD\tNozzle\tFuel Type\tOpening Reading\tClosing Reading\tTesting (L)\tSales (L)\tRate (₹)\tTotal Amount (₹)'];
-    const rows = data.map((r: any) =>
-      `${r.id || ''}\t${r.date || ''}\t${r.shiftName || ''}\t${r.mpdName || ''}\t${r.nozzleName || ''}\t${r.fuelType || ''}\t${r.openingReading ?? 0}\t${r.closingReading ?? 0}\t${r.testingQuantity ?? 0}\t${getRecordSalesLiters(r)}\t${r.ratePerLitre ?? r.rate ?? 0}\t${getRecordTotalAmount(r)}`
-    );
-    const xlsContent = '\uFEFF' + [headers.join('\n'), ...rows].join('\n');
-    const blob = new Blob([xlsContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `meter_readings_audit_${new Date().toISOString().slice(0, 10)}.xls`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Exported Excel report successfully!');
-  };
-
-  const downloadPDF = (data: MeterReading[]) => {
-    if (!data.length) { toast.warning('No records to print'); return; }
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) { toast.error('Pop-up blocked. Please allow pop-ups.'); return; }
-    const html = `
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Meter Readings Audit Log Report</title>
-          <style>
-            body { font-family: system-ui, sans-serif; padding: 20px; color: #1e293b; }
-            h2 { margin-bottom: 4px; }
-            p { font-size: 12px; color: #64748b; margin-top: 0; }
-            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-            th { background-color: #f1f5f9; font-weight: 600; }
-            .num { text-align: right; font-family: monospace; }
-            .badge { display: inline-block; padding: 2px 6px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: #e0f2fe; color: #0369a1; }
-          </style>
-        </head>
-        <body>
-          <h2>Meter Readings Shift Audit Logs</h2>
-          <p>Generated on ${new Date().toLocaleString()} ${mpdName ? `| Filtered for: ${mpdName}` : ''}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Shift</th>
-                <th>MPD / Nozzle</th>
-                <th>Fuel Type</th>
-                <th class="num">Opening</th>
-                <th class="num">Closing</th>
-                <th class="num">Testing (L)</th>
-                <th class="num">Net Sales (L)</th>
-                <th class="num">Rate (₹)</th>
-                <th class="num">Total Amount (₹)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.map((r: any) => `
-                <tr>
-                  <td>${r.date || '-'}</td>
-                  <td>${r.shiftName || '-'}</td>
-                  <td>${r.mpdName || ''} - ${r.nozzleName || ''}</td>
-                  <td><span class="badge">${r.fuelType || '-'}</span></td>
-                  <td class="num">${r.openingReading?.toFixed(2) ?? '0.00'}</td>
-                  <td class="num">${r.closingReading?.toFixed(2) ?? '0.00'}</td>
-                  <td class="num">${(r.testingQuantity || 0).toFixed(2)}</td>
-                  <td class="num"><b>${getRecordSalesLiters(r).toFixed(2)} L</b></td>
-                  <td class="num">₹${(r.ratePerLitre ?? r.rate ?? 0).toFixed(2)}</td>
-                  <td class="num"><b>₹${getRecordTotalAmount(r).toFixed(2)}</b></td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); }, 250);
-  };
-
-  const testingValueSum = readings.reduce((sum: number, r: any) =>
-    sum + ((Number(r.testingQuantity) || 0) * (Number(r.ratePerLitre || r.rate) || 0)), 0);
-  const avgRate = (summaryData?.totalSalesLiters || 0) > 0
-    ? (summaryData?.totalAmount || 0) / (summaryData?.totalSalesLiters || 1)
-    : 104.50;
-  const effectiveTestingVal = testingValueSum > 0
-    ? testingValueSum
-    : (summaryData?.totalTesting || 0) * avgRate;
-
-  const totalVolume = (summaryData?.totalSalesLiters || 0) + (summaryData?.totalTesting || 0);
-  const totalRevenue = (summaryData?.totalAmount || 0) + effectiveTestingVal;
-
-  const hasActiveFilters = Boolean(searchTerm || shiftFilter !== 'ALL' || fuelTypeFilter !== 'ALL' || fromDate || toDate);
-
-  const resetFilters = () => {
-    setSearchTerm('');
-    setShiftFilter('ALL');
-    setFuelTypeFilter('ALL');
-    setFromDate('');
-    setToDate('');
-    setPage(0);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex flex-col overflow-hidden p-0 border shadow-2xl rounded-xl"
-        style={{ maxWidth: '95vw', width: '95vw', height: '92vh', maxHeight: '92vh' }}
-      >
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 pr-12">
-          <div className="flex items-center justify-between gap-4">
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-              <History className="w-5 h-5 text-primary" />
-              Meter Readings History &amp; Audit Logs
-              {mpdName && (
-                <Badge variant="outline" className="bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-300 font-semibold text-xs ml-2">
-                  {mpdName}
-                </Badge>
-              )}
-            </DialogTitle>
-
-            <div className="hidden sm:flex items-center gap-4 bg-background/80 backdrop-blur px-3.5 py-1.5 rounded-lg border text-xs shadow-xs mr-8">
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Total Logs:</span>
-                <span className="font-bold text-foreground">{totalElements}</span>
-              </div>
-              <div className="h-3 w-px bg-border" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Gross Volume:</span>
-                <span className="font-bold text-blue-600 dark:text-blue-400">{totalVolume.toFixed(2)} L</span>
-              </div>
-              <div className="h-3 w-px bg-border" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Gross Revenue:</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                  ₹{totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          </div>
-        </DialogHeader>
-
-        {/* Inline Filter Bar matching Duty Records modal */}
-        <div className="px-6 py-3 border-b border-border bg-muted/20 flex flex-wrap items-center gap-3 shrink-0">
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-            <Input
-              placeholder="Search Nozzle or MPD..."
-              className="pl-8 h-8 text-xs bg-background"
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-2 text-muted-foreground hover:text-foreground text-xs font-bold"
-              >
-                ×
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={e => { setFromDate(e.target.value); setPage(0); }}
-              className="w-32 h-8 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={e => { setToDate(e.target.value); setPage(0); }}
-              className="w-32 h-8 rounded-md border border-border bg-background px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground font-medium">Shift</label>
-            <Select value={shiftFilter} onValueChange={v => { setShiftFilter(v); setPage(0); }}>
-              <SelectTrigger className="h-8 w-40 text-xs bg-background">
-                <SelectValue placeholder="All Shifts" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Shifts</SelectItem>
-                {masterShifts.map(s => (
-                  <SelectItem key={s.id || s.shiftName} value={s.shiftName}>
-                    {s.shiftName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground font-medium">Fuel Type</label>
-            <Select value={fuelTypeFilter} onValueChange={v => { setFuelTypeFilter(v); setPage(0); }}>
-              <SelectTrigger className="h-8 w-44 text-xs bg-background">
-                <SelectValue placeholder="All Fuel Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Fuel Types</SelectItem>
-                {fuelProducts.map(p => (
-                  <SelectItem key={p.id} value={p.name}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto">
-            {hasActiveFilters && (
-              <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={resetFilters}>
-                <RefreshCw className="w-3.5 h-3.5" /> Reset
-              </Button>
-            )}
-            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-green-50 dark:hover:bg-green-950/30" onClick={() => downloadCSV(readings)}>
-              <FileText className="w-3.5 h-3.5 text-green-600" /> CSV
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => downloadXLS(readings)}>
-              <FileText className="w-3.5 h-3.5 text-blue-600" /> Excel
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 font-medium hover:bg-red-50 dark:hover:bg-red-950/30" onClick={() => downloadPDF(readings)}>
-              <Download className="w-3.5 h-3.5 text-red-600" /> PDF
-            </Button>
-          </div>
-        </div>
-
-        {/* Scrollable Table matching Employee Assignment duty records table */}
-        <div className="flex-1 overflow-auto custom-scrollbar">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <p className="text-sm font-medium">Loading meter reading logs...</p>
-            </div>
-          ) : readings.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
-              <History className="w-10 h-10 opacity-20" />
-              <p className="text-sm">No meter reading logs found matching your filters.</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border z-10">
-                <tr>
-                  <th className="w-14 text-center px-3 py-3 font-medium text-muted-foreground">S.No</th>
-                  <th className="w-28 text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Shift</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">MPD</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nozzle</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Fuel</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Opening Reading (L)</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Closing Reading (L)</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Testing (L)</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Sales (L)</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Rate</th>
-                  <th className="text-right px-5 py-3 font-medium text-muted-foreground">Total Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {readings.map((r, idx) => (
-                  <tr key={r.id || idx} className="border-b border-border/60 hover:bg-muted/20 transition-colors">
-                    <td className="w-14 text-center px-3 py-3 font-semibold text-muted-foreground text-xs">
-                      {page * 20 + idx + 1}
-                    </td>
-                    <td className="w-28 px-4 py-3 font-mono text-xs">{r.date ? formatDateToDMY(r.date) : '-'}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="text-xs">{r.shiftName || '-'}</Badge>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">{r.mpdName || '-'}</td>
-                    <td className="px-4 py-3 font-semibold text-purple-700 dark:text-purple-300 text-xs">{r.nozzleName || '-'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${fuelBadgeStyle(r.fuelType)}`}>
-                        {r.fuelType || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{r.openingReading !== undefined && r.openingReading !== null ? `${r.openingReading.toFixed(2)} L` : '0.00 L'}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-foreground">{r.closingReading !== undefined && r.closingReading !== null ? `${r.closingReading.toFixed(2)} L` : '0.00 L'}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-amber-700 dark:text-amber-300 font-semibold">{(r.testingQuantity || 0).toFixed(2)} L</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs font-bold text-blue-600 dark:text-blue-400">{getRecordSalesLiters(r).toFixed(2)} L</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">₹{((r as any).ratePerLitre ?? (r as any).rate ?? 0).toFixed(2)}</td>
-                    <td className="px-5 py-3 text-right font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                      ₹{getRecordTotalAmount(r).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                ))}
-                {/* Spacer row to prevent sticky tfoot from obscuring the last data row */}
-                <tr className="h-14 border-none pointer-events-none" aria-hidden="true">
-                  <td colSpan={12} className="p-0 border-none h-14" />
-                </tr>
-              </tbody>
-              <tfoot className="sticky bottom-0 bg-muted/95 backdrop-blur-sm border-t-2 border-border z-10 font-bold text-xs">
-                <tr className="bg-muted/60">
-                  <td className="text-left px-4 py-3 text-foreground" colSpan={6}>
-                    Total ({totalElements.toLocaleString()} records)
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-foreground">
-                    {(summaryData?.totalOpening || 0).toFixed(2)} L
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-foreground">
-                    {(summaryData?.totalClosing || 0).toFixed(2)} L
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-foreground">
-                    {(summaryData?.totalTesting || 0).toFixed(2)} L
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">
-                    {totalVolume.toFixed(2)} L
-                  </td>
-                  <td className="px-4 py-3 text-right text-muted-foreground">—</td>
-                  <td className="px-5 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
-                    ₹{totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
-
-        {/* Pagination footer matching Employee Assignment duty records modal */}
-        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-muted/20 shrink-0">
-          <span className="text-xs text-muted-foreground">
-            Page {page + 1} of {totalPages} &nbsp;·&nbsp; {totalElements.toLocaleString()} records
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline" size="sm"
-              className="h-7 px-2 gap-1"
-              disabled={page === 0 || loading}
-              onClick={() => setPage(p => Math.max(0, p - 1))}
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <span className="text-xs font-mono px-2">{page + 1}</span>
-            <Button
-              variant="outline" size="sm"
-              className="h-7 px-2 gap-1"
-              disabled={page >= totalPages - 1 || loading}
-              onClick={() => setPage(p => p + 1)}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function MeterReadingTable({
   mpdName,
@@ -845,7 +367,7 @@ function MeterReadingTable({
         const mpdMasterInitial = (n.initialOpeningReading != null && !isNaN(n.initialOpeningReading)) ? n.initialOpeningReading : null;
         const fallbackDefault = getDefaultOpeningReading(n.nozzleName, n.fuelType, index);
 
-        const openingReading = (inStatePrevClosing > 0 ? inStatePrevClosing : (backendLatest ?? (savedOpening ?? (mpdMasterInitial ?? fallbackDefault))));
+        const openingReading = (savedOpening ?? (inStatePrevClosing > 0 ? inStatePrevClosing : (backendLatest ?? (mpdMasterInitial ?? fallbackDefault))));
 
         return {
           srNo,
@@ -958,6 +480,86 @@ function MeterReadingTable({
     return getFuelRate(fuelType, rateMaster);
   }, [savedNozzleRates, selectedShift, rateMaster]);
 
+  // ── Auto-save meter readings to backend on input with 1000ms debounce ──
+  const isAutoSavingRef = React.useRef(false);
+  const prevSavedSnapshotRef = React.useRef<string>('');
+
+  const autoSaveReadings = React.useCallback(async (
+    targetShift: string,
+    currentClosing: { [key: number]: string },
+    currentTesting: { [key: number]: string }
+  ) => {
+    if (!mpd || !mpd.nozzles || !targetShift || isAutoSavingRef.current) return;
+
+    const payload: MeterReading[] = [];
+    let hasValidEntries = false;
+
+    activeNozzleData.forEach((nozzle) => {
+      const srNo = nozzle.srNo;
+      const rawClose = currentClosing[srNo];
+      const open = nozzle.openingReading || 0;
+      const testing = parseFloat(currentTesting[srNo] || '0') || 0;
+      const rate = getEffectiveRateForNozzle(srNo, nozzle.fuelType);
+
+      let close = open;
+      let sales = 0;
+
+      if (rawClose !== undefined && rawClose !== null && String(rawClose).trim() !== '') {
+        const parsedClose = parseFloat(rawClose);
+        if (!isNaN(parsedClose) && parsedClose >= open) {
+          close = parsedClose;
+          sales = parsedClose - open;
+          hasValidEntries = true;
+        }
+      }
+
+      const amount = sales * rate;
+
+      payload.push({
+        date: targetDate,
+        shiftName: targetShift,
+        mpdId: mpd.id ? Number(String(mpd.id).replace(/\D+/g, '')) : undefined,
+        mpdName: mpd.mpdName || mpdName,
+        nozzleId: nozzle.id ? Number(String(nozzle.id).replace(/\D+/g, '')) : undefined,
+        nozzleName: nozzle.nozzleNumber,
+        fuelType: nozzle.fuelType,
+        openingReading: open,
+        closingReading: close,
+        testingQuantity: testing,
+        salesLiters: sales,
+        ratePerLitre: rate,
+        totalAmount: amount,
+        recordedBy: 'Shift Attendant'
+      });
+    });
+
+    const snapshot = JSON.stringify(payload);
+    if (!hasValidEntries || snapshot === prevSavedSnapshotRef.current) return;
+
+    try {
+      isAutoSavingRef.current = true;
+      await saveMeterReadingsBatchApi(payload);
+      prevSavedSnapshotRef.current = snapshot;
+    } catch (err) {
+      console.error('Auto-saving meter readings error:', err);
+    } finally {
+      isAutoSavingRef.current = false;
+    }
+  }, [mpd, mpdName, activeNozzleData, targetDate, getEffectiveRateForNozzle]);
+
+  // Debounced trigger for live typing changes
+  React.useEffect(() => {
+    if (!selectedShift) return;
+    const curClosing = shiftReadings[selectedShift] || {};
+    const curTesting = testingReadings[selectedShift] || {};
+
+    const timer = setTimeout(() => {
+      autoSaveReadings(selectedShift, curClosing, curTesting);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [shiftReadings, testingReadings, selectedShift, autoSaveReadings]);
+
   const closingReadings = shiftReadings[selectedShift] || {};
 
   const handleClosingReadingChange = (srNo: number, value: string) => {
@@ -969,55 +571,6 @@ function MeterReadingTable({
       }
     }));
   };
-
-  const [historicalFuelTotals, setHistoricalFuelTotals] = React.useState<{ [fuelType: string]: { units: number; amount: number; rate: number } }>({});
-
-  React.useEffect(() => {
-    const loadHistoricalFuelTotals = async () => {
-      try {
-        const params: any = { size: 100000, toDate: targetDate };
-        if (mpd?.id) {
-          params.mpdId = String(mpd.id);
-        }
-
-        const res = await fetchMeterReadingsHistory(params);
-        const records = res.content || [];
-        const histMap: { [fuelType: string]: { units: number; amount: number; rate: number } } = {};
-
-        const targetMpdStr = mpdName || (mpd?.name ? String(mpd.name) : '');
-        const targetMpdNum = targetMpdStr.match(/(?:dispenser|mpd)\s*(\d+)/i)?.[1] || targetMpdStr.match(/\d+/)?.[0];
-
-        const isMpdMatch = (r: any) => {
-          return isStrictMpdMatch(r, mpd?.mpdName || mpdName);
-        };
-
-        const isCurrentShift = (r: any) => {
-          if (!r.date || !selectedShift) return false;
-          if (r.date !== targetDate) return false;
-          return isSameShift(r.shiftName || r.shift, selectedShift);
-        };
-
-        records.forEach((r: any) => {
-          if (!isMpdMatch(r) || isCurrentShift(r)) return;
-          const fuel = r.productName || r.fuelType || 'Fuel';
-          const units = Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0;
-          const amount = Number(r.totalAmount) || Number(r.netAmount) || 0;
-          const rate = Number(r.rate || r.ratePerLitre) || 0;
-
-          if (!histMap[fuel]) {
-            histMap[fuel] = { units: 0, amount: 0, rate };
-          }
-          histMap[fuel].units += units;
-          histMap[fuel].amount += amount;
-          if (rate > 0) histMap[fuel].rate = rate;
-        });
-        setHistoricalFuelTotals(histMap);
-      } catch (err) {
-        console.error('Failed to load historical fuel totals:', err);
-      }
-    };
-    loadHistoricalFuelTotals();
-  }, [targetDate, mpdName, mpd?.id, selectedShift]);
 
   const calculateSales = (srNo: number, openingReading: number) => {
     const rawClosing = closingReadings[srNo];
@@ -1034,38 +587,20 @@ function MeterReadingTable({
   const calculateFuelWiseTotals = () => {
     const totals: { [key: string]: { units: number; amount: number; rate: number } } = {};
 
-    // 1. Initialize with historical cumulative totals from Day 1 to past shifts
-    Object.entries(historicalFuelTotals).forEach(([fuelType, hist]) => {
-      totals[fuelType] = {
-        units: hist.units,
-        amount: hist.amount,
-        rate: hist.rate || getFuelRate(fuelType, rateMaster)
-      };
-    });
-
-    // 2. Add live shift entries ONLY when closingReading > openingReading
+    // Compute ONLY active shift entries for this dispenser
     activeNozzleData.forEach((nozzle) => {
+      const fuelType = nozzle.fuelType || 'Fuel';
+      const rate = getEffectiveRateForNozzle(nozzle.srNo, fuelType);
+      if (!totals[fuelType]) {
+        totals[fuelType] = { units: 0, amount: 0, rate };
+      }
+
       const sales = parseFloat(calculateSales(nozzle.srNo, nozzle.openingReading)) || 0;
       if (sales > 0) {
-        const fuelType = nozzle.fuelType || 'Fuel';
-        const rate = getEffectiveRateForNozzle(nozzle.srNo, fuelType);
         const amount = sales * rate;
-
-        if (!totals[fuelType]) {
-          totals[fuelType] = { units: 0, amount: 0, rate };
-        }
         totals[fuelType].units += sales;
         totals[fuelType].amount += amount;
         if (rate > 0) totals[fuelType].rate = rate;
-      }
-    });
-
-    // 3. Ensure all active nozzles' fuel types exist in totals
-    activeNozzleData.forEach((nozzle) => {
-      const fuelType = nozzle.fuelType;
-      if (fuelType && !totals[fuelType]) {
-        const rate = getEffectiveRateForNozzle(nozzle.srNo, fuelType);
-        totals[fuelType] = { units: 0, amount: 0, rate };
       }
     });
 
@@ -1082,7 +617,7 @@ function MeterReadingTable({
 
   const fuelTotals = React.useMemo(() => {
     return calculateFuelWiseTotals();
-  }, [activeNozzleData, scopeMode, nozzleScopeSummaries, shiftReadings, savedNozzleRates, rateMaster, selectedShift, testingReadings, historicalFuelTotals]);
+  }, [activeNozzleData, closingReadings, rateMaster, selectedShift, testingReadings]);
 
   const grandTotal = React.useMemo(() => {
     let totalUnits = 0;
@@ -1095,6 +630,7 @@ function MeterReadingTable({
   }, [fuelTotals]);
 
   const fuelTotalsKey = React.useMemo(() => JSON.stringify(fuelTotals), [fuelTotals]);
+  const testingReadingsKey = React.useMemo(() => JSON.stringify(testingReadings), [testingReadings]);
 
   React.useEffect(() => {
     if (onTotalSalesChange) {
@@ -1124,7 +660,7 @@ function MeterReadingTable({
       }));
       onFuelSalesSummaryChange(list);
     }
-  }, [grandTotal.totalAmount, scopeMode, fuelTotalsKey, onTotalSalesChange, onFuelSalesSummaryChange, rateMaster]);
+  }, [grandTotal.totalAmount, scopeMode, fuelTotalsKey, testingReadingsKey, onTotalSalesChange, onFuelSalesSummaryChange, rateMaster, activeNozzleData]);
 
   const handleSaveShiftReadings = async () => {
     for (const n of activeNozzleData) {
@@ -1183,37 +719,9 @@ function MeterReadingTable({
 
   return (
     <div>
-      <MeterReadingHistoryModal
-        open={showHistoryModal}
-        onOpenChange={setShowHistoryModal}
-        mpdId={mpd?.id}
-        mpdName={mpdName}
-      />
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h3 className="text-lg font-semibold text-foreground">Meter Readings - {mpdName}</h3>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowHistoryModal(true)}
-            className="gap-1.5 h-9 text-xs"
-          >
-            <History className="w-4 h-4 text-purple-600" /> View Reading Logs
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleSaveShiftReadings}
-            disabled={savingReadings}
-            className="bg-green-600 hover:bg-green-700 text-white gap-1.5 h-9 text-xs font-semibold"
-          >
-            {savingReadings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save Readings
-          </Button>
-        </div>
       </div>
 
       {/* Compact Meter Reading Table */}
@@ -1532,16 +1040,11 @@ function SettlementsTab({
       if (selectedDate) {
         if (scopeMode === 'shift') {
           // Filter by date AND shift for shift-wise balance accuracy
-          filtered = data.filter(r => r.date === selectedDate && (!selectedShift || !r.shiftName || r.shiftName === selectedShift));
+          filtered = data.filter(r => (!selectedDate || r.date === selectedDate) && (!selectedShift || !r.shiftName || isSameShift(r.shiftName, selectedShift)));
         } else if (scopeMode === 'day') {
           filtered = data.filter(r => r.date === selectedDate);
         }
         // scopeMode === 'overall': return all (no date filter)
-      }
-
-      // Fallback: If strict date/shift filter yields 0 records but data for MPD exists, display all MPD settlements
-      if (filtered.length === 0 && data && data.length > 0) {
-        filtered = data;
       }
 
       setSettlementRecords(filtered);
@@ -2089,7 +1592,8 @@ function MPDTabContent({
   activeSubTab = subTabs[0],
   onSubTabChange,
   rateMaster = {},
-  activeShiftName = 'Shift 1'
+  activeShiftName = '',
+  onShiftChange
 }: {
   mpdName: string;
   mpd?: MPD;
@@ -2099,6 +1603,7 @@ function MPDTabContent({
   onSubTabChange?: (tab: string) => void;
   rateMaster?: Record<string, number>;
   activeShiftName?: string;
+  onShiftChange?: (shift: string) => void;
 }) {
   const [resolvedMpdName, setResolvedMpdName] = React.useState(() => {
     if (mpd?.mpdName) return mpd.mpdName;
@@ -2122,7 +1627,18 @@ function MPDTabContent({
     if (activeShiftName) {
       setCurrentShift(activeShiftName);
     }
-  }, [activeShiftName]);
+    setCreditSalesTotalAmount(undefined);
+    setOwnUseTotalAmount(undefined);
+    setSettlementTotalAmount(undefined);
+    setEmployeeDepositsTotalAmount(undefined);
+  }, [activeShiftName, selectedDate]);
+
+  const handleShiftChangeInContent = (newShift: string) => {
+    setCurrentShift(newShift);
+    if (onShiftChange) {
+      onShiftChange(newShift);
+    }
+  };
 
   const [activeTab, setActiveTab] = React.useState(activeSubTab);
 
@@ -2191,25 +1707,28 @@ function MPDTabContent({
       };
 
       try {
-        // ── Cumulative Meter Readings total (Day 1 -> Selected Date) ──────────
+        // ── Active Shift Meter Readings for this MPD ──────────
         const meterParams: any = { size: 100000 };
         if (selectedDate) {
+          meterParams.fromDate = selectedDate;
           meterParams.toDate = selectedDate;
         }
 
+        let hasActiveShiftMeterReadings = false;
         const meterRes = await fetchMeterReadingsHistory(meterParams);
         if (!cancelled) {
           let filteredMeter = (meterRes.content || []).filter((r: any) =>
-            isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
+            isLocalMpdMatch(r, mpdNameForFilter) &&
+            (!selectedDate || r.date === selectedDate) &&
+            (!currentShift || isSameShift(r.shiftName || r.shift, currentShift))
           );
-
           const fuelGroup: Record<string, { testing: number; units: number; amount: number; rateSum: number; count: number }> = {};
           let totalOverallMeterAmt = 0;
 
           filteredMeter.forEach((r: any) => {
             const pName = r.productName || r.fuelType || 'Fuel';
             if (!fuelGroup[pName]) fuelGroup[pName] = { testing: 0, units: 0, amount: 0, rateSum: 0, count: 0 };
-            
+
             const testing = Number(r.testingQuantity) || 0;
             const open = Number(r.openingReading) || 0;
             const close = Number(r.closingReading) || 0;
@@ -2229,6 +1748,8 @@ function MPDTabContent({
             }
           });
 
+          hasActiveShiftMeterReadings = filteredMeter.length > 0 && totalOverallMeterAmt > 0;
+
           setOverallMeterTotal(totalOverallMeterAmt);
 
           const fuelList = Object.keys(fuelGroup).map(p => ({
@@ -2240,89 +1761,108 @@ function MPDTabContent({
           }));
           setOverallProductSales(fuelList);
         }
+
+        if (!hasActiveShiftMeterReadings) {
+          setOverallCreditTotal(0);
+          setOverallOwnUseTotal(0);
+          setOverallSettlementsTotal(0);
+          setOverallDepositsTotal(0);
+        } else {
+          try {
+            const creditResData = await fetchCreditSales({ size: 100000, mpd: mpdNameForFilter || undefined });
+            if (!cancelled) {
+              let filteredCredit = (creditResData.content || []).filter((r: any) =>
+                isLocalMpdMatch(r, mpdNameForFilter) &&
+                (!selectedDate || r.date === selectedDate) &&
+                (!currentShift || !r.shiftName || isSameShift(r.shiftName || r.shift, currentShift))
+              );
+              const creditTotal = filteredCredit.reduce((sum: number, r: any) =>
+                sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
+              setOverallCreditTotal(creditTotal);
+            }
+          } catch (err) {
+            console.error('Failed to load active shift credit total:', err);
+          }
+
+          try {
+            const ownUseResData = await fetchOwnUsages({ size: 100000, mpd: mpdNameForFilter || undefined });
+            if (!cancelled) {
+              let filteredOwnUse = (ownUseResData.content || []).filter((r: any) =>
+                isLocalMpdMatch(r, mpdNameForFilter) &&
+                (!selectedDate || r.date === selectedDate) &&
+                (!currentShift || !r.shiftName || isSameShift(r.shiftName || r.shift, currentShift))
+              );
+              const ownUseTotal = filteredOwnUse.reduce((sum: number, r: any) =>
+                sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
+              setOverallOwnUseTotal(ownUseTotal);
+            }
+          } catch (err) {
+            console.error('Failed to load active shift own use total:', err);
+          }
+
+          try {
+            if (mpdNameForFilter) {
+              const settleRes = await fetchSettlementsByMpd(mpdNameForFilter);
+              if (!cancelled) {
+                let filteredSettle = (settleRes || []).filter((r: any) =>
+                  isLocalMpdMatch(r, mpdNameForFilter) &&
+                  (!selectedDate || r.date === selectedDate) &&
+                  (!currentShift || !r.shiftName || isSameShift(r.shiftName || r.shift, currentShift))
+                );
+                const settleTotal = filteredSettle.reduce((sum: number, r: any) =>
+                  sum + (Number(r.amount) || 0), 0);
+                setOverallSettlementsTotal(settleTotal);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to load active shift settlements total:', err);
+          }
+
+          try {
+            const depositsRes = await fetchCashCollections({ size: 100000 });
+            if (!cancelled && depositsRes.content) {
+              let filteredDeposits = depositsRes.content.filter((r: any) =>
+                isLocalMpdMatch(r, mpdNameForFilter) &&
+                (!selectedDate || r.date === selectedDate) &&
+                (!currentShift || !r.shift || isSameShift(r.shift, currentShift))
+              );
+              const depositsTotal = filteredDeposits.reduce((sum: number, r: any) =>
+                sum + (Number(r.depositAmount) || Number(r.amount) || 0), 0);
+              setOverallDepositsTotal(depositsTotal);
+            }
+          } catch (err) {
+            console.error('Failed to load active shift deposits total:', err);
+          }
+        }
       } catch (err) {
         console.error('Failed to load overall meter total:', err);
       }
 
       try {
-        // ── Cumulative Credit Sales overall total (Day 1 -> Selected Date) ────
-        const creditResData = await fetchCreditSales({ size: 100000, mpd: mpdNameForFilter || undefined });
-        if (!cancelled) {
-          let filteredCredit = (creditResData.content || []).filter((r: any) =>
-            isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
-          );
-          const creditTotal = filteredCredit.reduce((sum: number, r: any) =>
-            sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
-          setOverallCreditTotal(creditTotal);
-        }
-      } catch (err) {
-        console.error('Failed to load overall credit total:', err);
-      }
-
-      try {
-        // ── Cumulative Own Use overall total (Day 1 -> Selected Date) ─────────
-        const ownUseResData = await fetchOwnUsages({ size: 100000, mpd: mpdNameForFilter || undefined });
-        if (!cancelled) {
-          let filteredOwnUse = (ownUseResData.content || []).filter((r: any) =>
-            isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
-          );
-          const ownUseTotal = filteredOwnUse.reduce((sum: number, r: any) =>
-            sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
-          setOverallOwnUseTotal(ownUseTotal);
-        }
-      } catch (err) {
-        console.error('Failed to load overall own use total:', err);
-      }
-
-      try {
-        // ── Cumulative Settlements overall total (Day 1 -> Selected Date) ─────
-        if (mpdNameForFilter) {
-          const settleRes = await fetchSettlementsByMpd(mpdNameForFilter);
-          if (!cancelled) {
-            let filteredSettle = (settleRes || []).filter((r: any) =>
-              isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
-            );
-            const settleTotal = filteredSettle.reduce((sum: number, r: any) =>
-              sum + (Number(r.amount) || 0), 0);
-            setOverallSettlementsTotal(settleTotal);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load overall settlements total:', err);
-      }
-
-      try {
-        // ── Cumulative Employee Deposits overall total (Day 1 -> Selected Date)
-        const depositsRes = await fetchCashCollections({ size: 100000 });
-        if (!cancelled && depositsRes.content) {
-          let filteredDeposits = depositsRes.content.filter((r: any) =>
-            isLocalMpdMatch(r, mpdNameForFilter) && isUpToSelectedDate(r.date)
-          );
-          const depositsTotal = filteredDeposits.reduce((sum: number, r: any) =>
-            sum + (Number(r.depositAmount) || Number(r.amount) || 0), 0);
-          setOverallDepositsTotal(depositsTotal);
-        }
-      } catch (err) {
-        console.error('Failed to load overall deposits total:', err);
-      }
-
-      try {
-        // ── Cumulative Shortages & RoundUp overall totals (Day 1 -> Selected Date)
+        // ── Active Shift Shortages & RoundUp totals for this MPD ──────────
         const targetDateVal = selectedDate || new Date().toISOString().slice(0, 10);
-        const cumRecRes = await fetchCumulativeReconciliationsApi(mpdNameForFilter, targetDateVal);
-        if (!cancelled && cumRecRes) {
-          setOverallShortagesTotal(cumRecRes.overallShortageSum || 0);
-          setOverallPaidShortagesTotal(cumRecRes.paidShortageSum || 0);
-          setOverallRoundUpTotal(cumRecRes.overallRoundUpSum || 0);
+        const shiftVal = currentShift || selectedShift || activeShiftName;
+        const recRes = await fetchPaginatedReconciliationsApi({ mpdName: mpdNameForFilter, date: targetDateVal, shift: shiftVal, size: 100 });
+        if (!cancelled && recRes.content) {
+          const matching = recRes.content.filter((r: any) =>
+            isStrictMpdMatch(r, mpdNameForFilter) &&
+            r.date === targetDateVal &&
+            (!shiftVal || isSameShift(r.shiftName || r.shift, shiftVal))
+          );
+          const shortTot = matching.reduce((sum: number, r: any) => sum + (Number(r.employeeShortage) || 0), 0);
+          const roundTot = matching.reduce((sum: number, r: any) => sum + (Number(r.roundUp) || 0), 0);
+          setOverallShortagesTotal(shortTot);
+          setOverallPaidShortagesTotal(0);
+          setOverallRoundUpTotal(roundTot);
         }
       } catch (err) {
-        console.error('Failed to load overall cumulative reconciliations total:', err);
+        console.error('Failed to load overall active shift reconciliations total:', err);
       }
     };
 
     loadOverallTotals();
     return () => { cancelled = true; };
-  }, [resolvedMpdName, mpd?.id, mpdName, selectedDate]);
+  }, [resolvedMpdName, mpd?.id, mpdName, selectedDate, currentShift]);
 
   // Cumulative up-to-date total meter sales: Live active shift sales or saved historical sales fallback
   const getMeterReadingTotal = () => meterReadingTotalSales > 0 ? meterReadingTotalSales : overallMeterTotal;
@@ -2331,10 +1871,10 @@ function MPDTabContent({
     if (liveSum > 0) return fuelSalesSummary;
     return overallProductSales.length > 0 ? overallProductSales : fuelSalesSummary;
   };
-  const getCreditSalesTotal = () => (creditSalesTotalAmount !== undefined && creditSalesTotalAmount > 0) ? creditSalesTotalAmount : overallCreditTotal;
-  const getOwnUseTotal = () => (ownUseTotalAmount !== undefined && ownUseTotalAmount > 0) ? ownUseTotalAmount : overallOwnUseTotal;
-  const getSettlementsTotal = () => (settlementTotalAmount !== undefined && settlementTotalAmount > 0) ? settlementTotalAmount : overallSettlementsTotal;
-  const getEmployeeDepositsTotal = () => (employeeDepositsTotalAmount !== undefined && employeeDepositsTotalAmount > 0) ? employeeDepositsTotalAmount : overallDepositsTotal;
+  const getCreditSalesTotal = () => (creditSalesTotalAmount !== undefined) ? creditSalesTotalAmount : overallCreditTotal;
+  const getOwnUseTotal = () => (ownUseTotalAmount !== undefined) ? ownUseTotalAmount : overallOwnUseTotal;
+  const getSettlementsTotal = () => (settlementTotalAmount !== undefined) ? settlementTotalAmount : overallSettlementsTotal;
+  const getEmployeeDepositsTotal = () => (employeeDepositsTotalAmount !== undefined) ? employeeDepositsTotalAmount : overallDepositsTotal;
 
   const formatIndianCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -2429,7 +1969,7 @@ function MPDTabContent({
           rateMaster={rateMaster}
           onTotalSalesChange={setMeterReadingTotalSales}
           onFuelSalesSummaryChange={setFuelSalesSummary}
-          onShiftChange={setCurrentShift}
+          onShiftChange={handleShiftChangeInContent}
         />
       </TabsContent>
 
@@ -2555,6 +2095,7 @@ function MPDSummaryTab({
   }, []);
   const [assignedDutyStaff, setAssignedDutyStaff] = React.useState<Array<{ id: string; name: string; nozzleName?: string }>>([]);
   const [summaryViewMode, setSummaryViewMode] = React.useState<'shift' | 'cumulative'>('shift');
+  const [showOtherEmployees, setShowOtherEmployees] = React.useState(false);
 
   const [employeeShortage, setEmployeeShortage] = React.useState('0');
   const [shortageItems, setShortageItems] = React.useState<Array<{
@@ -2563,8 +2104,6 @@ function MPDSummaryTab({
     shortageAction: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery';
     shortageReason: string;
     amount: string;
-    status?: 'Paid' | 'Pending' | string;
-    paidDate?: string;
     isSaved?: boolean;
   }>>([]);
 
@@ -2573,10 +2112,9 @@ function MPDSummaryTab({
   const [shortageReason, setShortageReason] = React.useState('');
   const [roundUp, setRoundUp] = React.useState('0.00');
   const [savingReconciliation, setSavingReconciliation] = React.useState(false);
-  const [showShortageModal, setShowShortageModal] = React.useState(false);
 
   const targetDate = selectedDate || new Date().toISOString().slice(0, 10);
-  const targetShift = selectedShift || 'Shift 1';
+  const targetShift = selectedShift || '';
 
   // Load all active employees
   React.useEffect(() => {
@@ -2598,29 +2136,55 @@ function MPDSummaryTab({
   // Fetch Duty Assignments for targetDate + targetShift + MPD
   React.useEffect(() => {
     let isMounted = true;
-    if (targetDate && targetShift) {
-      const derivedShiftId = (() => {
-        const match = targetShift.match(/\b([1-9])\b/);
-        if (match) return match[1];
-        const norm = targetShift.toLowerCase();
-        if (norm.includes('morning')) return '1';
-        if (norm.includes('evening') || norm.includes('afternoon')) return '2';
-        if (norm.includes('night')) return '3';
-        return '1';
+    const safeDate = targetDate || '';
+    const safeShift = targetShift || '';
+    const safeMpdName = resolvedMpdName || '';
+
+    if (safeDate && safeShift) {
+      const candidateShiftIds = (() => {
+        const ids: string[] = [];
+        const match = safeShift.match(/\b([0-9]+)\b/);
+        if (match) ids.push(match[1]);
+        const norm = safeShift.toLowerCase();
+        if (norm.includes('morning')) { ids.push('18'); ids.push('1'); }
+        if (norm.includes('evening') || norm.includes('afternoon')) { ids.push('19'); ids.push('2'); }
+        if (norm.includes('night')) { ids.push('20'); ids.push('3'); }
+        return Array.from(new Set(ids));
       })();
 
-      fetchEmployeeAssignments(targetDate, derivedShiftId)
+      const fetchCandidateAssignments = async () => {
+        let allAssignments: EmployeeAssignment[] = [];
+        for (const sId of candidateShiftIds) {
+          try {
+            const res = await fetchEmployeeAssignments(safeDate, sId);
+            if (res && Array.isArray(res) && res.length > 0) {
+              allAssignments = [...allAssignments, ...res];
+            }
+          } catch (e) {
+            // ignore fallback
+          }
+        }
+        return allAssignments;
+      };
+
+      fetchCandidateAssignments()
         .then(assignments => {
-          if (isMounted && assignments && assignments.length > 0) {
+          if (isMounted && Array.isArray(assignments) && assignments.length > 0) {
             const mpdStaffList: Array<{ id: string; name: string; nozzleName?: string }> = [];
             assignments.forEach(a => {
-              const matchedMpd = a.nozzle?.mpd?.name || (mpd ? mpd.name : '');
-              if (matchedMpd === resolvedMpdName && a.employee) {
-                if (!mpdStaffList.some(s => s.id === String(a.employee?.id))) {
+              if (!a) return;
+              const itemMpdName = a.mpdName || '';
+              const isMpdMatch = (safeMpdName && itemMpdName === safeMpdName) ||
+                (safeMpdName && itemMpdName && itemMpdName.toLowerCase() === safeMpdName.toLowerCase()) ||
+                (mpd?.id && a.mpdId && String(a.mpdId) === String(mpd.id)) ||
+                (safeMpdName && itemMpdName && (safeMpdName.includes(itemMpdName) || itemMpdName.includes(safeMpdName)));
+
+              if (isMpdMatch && a.employeeId && a.employeeName) {
+                if (!mpdStaffList.some(s => s.id === String(a.employeeId))) {
                   mpdStaffList.push({
-                    id: String(a.employee.id),
-                    name: a.employee.name,
-                    nozzleName: a.nozzle?.nozzleName
+                    id: String(a.employeeId),
+                    name: a.employeeName,
+                    nozzleName: a.nozzleName || undefined
                   });
                 }
               }
@@ -2645,7 +2209,7 @@ function MPDSummaryTab({
       fetchExistingMpdReconciliation(targetDate, targetShift, resolvedMpdName)
         .then(rec => {
           if (isMounted) {
-            if (rec) {
+            if (rec && isSameShift(rec.shiftName || rec.shift, targetShift)) {
               setEmployeeShortage(rec.employeeShortage != null ? String(rec.employeeShortage) : '0');
               setSelectedEmployeeId(rec.employeeId != null ? String(rec.employeeId) : '');
               setShortageAction((rec.shortageAction as any) || 'Salary Deduction');
@@ -2659,8 +2223,6 @@ function MPDSummaryTab({
                   shortageAction: (item.shortageAction as any) || 'Salary Deduction',
                   shortageReason: item.shortageReason || '',
                   amount: item.amount != null ? String(item.amount) : '0',
-                  status: (item.status as any) || rec.status || 'Pending',
-                  paidDate: item.paidDate || rec.paidDate,
                   isSaved: true
                 })));
               } else if (rec.employeeShortage && rec.employeeShortage > 0 && rec.employeeId) {
@@ -2670,8 +2232,6 @@ function MPDSummaryTab({
                   shortageAction: (rec.shortageAction as any) || 'Salary Deduction',
                   shortageReason: rec.shortageReason || '',
                   amount: String(rec.employeeShortage),
-                  status: (rec.status as any) || 'Pending',
-                  paidDate: rec.paidDate,
                   isSaved: true
                 }]);
               } else {
@@ -2692,54 +2252,12 @@ function MPDSummaryTab({
     return () => { isMounted = false; };
   }, [targetDate, targetShift, resolvedMpdName]);
 
-  // ── Shortage items modal state & pagination ──
-  const [shortageCurrentPage, setShortageCurrentPage] = React.useState(0);
-  const SHORTAGE_PAGE_SIZE = 5;
-
-  // ── Server-side Paginated Cumulative Shortage Ledger state (25 per page) ──
-  const [shortageSearchInput, setShortageSearchInput] = React.useState('');
-  const [debouncedSearch, setDebouncedSearch] = React.useState('');
-  const [shortageFromDate, setShortageFromDate] = React.useState('');
-  const [shortageToDate, setShortageToDate] = React.useState('');
-  const [shortageStatusFilter, setShortageStatusFilter] = React.useState<'ALL' | 'Paid' | 'Pending'>('ALL');
-  const [shortageMpdFilter, setShortageMpdFilter] = React.useState(() => resolvedMpdName || 'ALL');
-  const [shortageServerPage, setShortageServerPage] = React.useState(0);
-
-  React.useEffect(() => {
-    if (resolvedMpdName) {
-      setShortageMpdFilter(resolvedMpdName);
-    }
-  }, [resolvedMpdName]);
-  const [shortageServerRecords, setShortageServerRecords] = React.useState<MpdReconciliationRecord[]>([]);
-  const [shortageServerTotalPages, setShortageServerTotalPages] = React.useState(0);
-  const [shortageServerTotalElements, setShortageServerTotalElements] = React.useState(0);
-  const [shortageServerLoading, setShortageServerLoading] = React.useState(false);
-
-  // Edit Pending Shortage Record state (Supports editing all fields)
-  const [editingRec, setEditingRec] = React.useState<MpdReconciliationRecord | null>(null);
-  const [editingItemIndex, setEditingItemIndex] = React.useState<number | undefined>(undefined);
-  const [editingStatus, setEditingStatus] = React.useState<'Paid' | 'Pending'>('Paid');
-  const [editingPaidDate, setEditingPaidDate] = React.useState<string>(new Date().toISOString().split('T')[0]);
-  const [editingShortageAction, setEditingShortageAction] = React.useState<'Salary Deduction' | 'Station Expense' | 'Cash Recovery'>('Salary Deduction');
-  const [editingShortageReason, setEditingShortageReason] = React.useState('');
-  const [editingShortageAmount, setEditingShortageAmount] = React.useState('0');
-  const [editingItems, setEditingItems] = React.useState<Array<{
-    employeeId?: number | string;
-    employeeName?: string;
-    shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery';
-    shortageReason?: string;
-    amount?: number;
-    status?: string;
-    paidDate?: string;
-  }>>([]);
-  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
 
   // New Shortage Entry Modal state
   const [showAddEntryModal, setShowAddEntryModal] = React.useState(false);
   const [editingDraftIndex, setEditingDraftIndex] = React.useState<number | null>(null);
   const [newEntryEmpId, setNewEntryEmpId] = React.useState('');
   const [newEntryAction, setNewEntryAction] = React.useState<'Salary Deduction' | 'Station Expense' | 'Cash Recovery'>('Salary Deduction');
-  const [newEntryStatus, setNewEntryStatus] = React.useState<'Paid' | 'Pending'>('Pending');
   const [newEntryReason, setNewEntryReason] = React.useState('');
   const [newEntryAmount, setNewEntryAmount] = React.useState('');
 
@@ -2751,7 +2269,6 @@ function MPDSummaryTab({
 
     setNewEntryEmpId(defaultEmp ? String(defaultEmp.id) : '');
     setNewEntryAction('Salary Deduction');
-    setNewEntryStatus('Pending');
     setNewEntryReason('');
     setNewEntryAmount(initialAmt);
     setShowAddEntryModal(true);
@@ -2763,7 +2280,6 @@ function MPDSummaryTab({
     setEditingDraftIndex(index);
     setNewEntryEmpId(item.employeeId || '');
     setNewEntryAction((item.shortageAction as any) || 'Salary Deduction');
-    setNewEntryStatus((item.status as any) || 'Pending');
     setNewEntryReason(item.shortageReason || '');
     setNewEntryAmount(item.amount || '0');
     setShowAddEntryModal(true);
@@ -2789,8 +2305,6 @@ function MPDSummaryTab({
       shortageAction: newEntryAction,
       shortageReason: newEntryReason,
       amount: String(amt),
-      status: newEntryStatus,
-      paidDate: newEntryStatus === 'Paid' ? targetDate : undefined,
       isSaved: false
     };
 
@@ -2800,166 +2314,23 @@ function MPDSummaryTab({
       toast.success('Draft shortage entry updated!');
     } else {
       setShortageItems(prev => [...prev, draftItemObj]);
-      toast.success('Shortage entry added to draft! Click "Save Records" below to save to database.');
+      toast.success('Shortage entry added to shift! Click "Save Records" to save.');
     }
 
     setShowAddEntryModal(false);
   };
 
-  // Debounce search input (350ms) to prevent excessive backend queries while typing
-  React.useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(shortageSearchInput);
-      setShortageServerPage(0);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [shortageSearchInput]);
-
-  const loadServerReconciliations = React.useCallback(async () => {
-    setShortageServerLoading(true);
-    try {
-      const activeMpdParam = shortageMpdFilter !== 'ALL' ? shortageMpdFilter : undefined;
-      const res = await fetchPaginatedReconciliationsApi({
-        search: debouncedSearch || undefined,
-        mpdName: activeMpdParam,
-        status: shortageStatusFilter !== 'ALL' ? shortageStatusFilter : undefined,
-        fromDate: shortageFromDate || undefined,
-        toDate: shortageToDate || undefined,
-        page: shortageServerPage,
-        size: 25,
-        sort: 'date,desc'
-      });
-      setShortageServerRecords(res.content || []);
-      setShortageServerTotalPages(res.totalPages || 0);
-      setShortageServerTotalElements(res.totalElements || 0);
-    } catch (err) {
-      console.error('Failed to load server reconciliations:', err);
-    } finally {
-      setShortageServerLoading(false);
-    }
-  }, [debouncedSearch, shortageMpdFilter, shortageStatusFilter, shortageFromDate, shortageToDate, shortageServerPage]);
-
-  React.useEffect(() => {
-    if (showShortageModal) {
-      loadServerReconciliations();
-    }
-  }, [showShortageModal, loadServerReconciliations]);
-
-  // Check if any filter is actively applied in the modal
-  const isShortageFilterActive = Boolean(
-    debouncedSearch || shortageFromDate || shortageToDate || shortageStatusFilter !== 'ALL' || shortageMpdFilter !== 'ALL'
-  );
-
-  // Dynamic sum of shortage records currently matching active filters
-  const filteredShortagesSum = React.useMemo(() => {
-    return shortageServerRecords.reduce((sum, rec) => sum + (rec.employeeShortage || 0), 0);
-  }, [shortageServerRecords]);
-
-  // Flatten server reconciliation records into itemized individual shortage entries
-  const flattenedShortageItems = React.useMemo(() => {
-    const list: Array<{
-      recId?: number | string;
-      date: string;
-      shiftName: string;
-      mpdName: string;
-      employeeId?: number | string;
-      employeeName: string;
-      shortageAction: string;
-      status: string;
-      paidDate?: string;
-      shortageReason: string;
-      amount: number;
-      isItem: boolean;
-      itemIndex?: number;
-    }> = [];
-
-    shortageServerRecords.forEach((rec) => {
-      if (rec.items && rec.items.length > 0) {
-        rec.items.forEach((item, idx) => {
-          list.push({
-            recId: rec.id,
-            date: rec.date,
-            shiftName: rec.shiftName,
-            mpdName: rec.mpdName,
-            employeeId: item.employeeId,
-            employeeName: item.employeeName || rec.employeeName || 'Staff Member',
-            shortageAction: item.shortageAction || rec.shortageAction || 'Salary Deduction',
-            status: item.status || rec.status || 'Pending',
-            paidDate: (item.status === 'Paid' || rec.status === 'Paid') ? (item.paidDate || rec.paidDate) : undefined,
-            shortageReason: item.shortageReason || rec.shortageReason || '',
-            amount: item.amount != null ? item.amount : 0,
-            isItem: true,
-            itemIndex: idx
-          });
-        });
-      } else {
-        list.push({
-          recId: rec.id,
-          date: rec.date,
-          shiftName: rec.shiftName,
-          mpdName: rec.mpdName,
-          employeeId: rec.employeeId,
-          employeeName: rec.employeeName || 'Staff Member',
-          shortageAction: rec.shortageAction || 'Salary Deduction',
-          status: rec.status || 'Pending',
-          paidDate: rec.status === 'Paid' ? (rec.paidDate || rec.date) : undefined,
-          shortageReason: rec.shortageReason || '',
-          amount: rec.employeeShortage || 0,
-          isItem: false
-        });
-      }
-    });
-
-    let filteredList = list;
-    if (shortageStatusFilter !== 'ALL') {
-      filteredList = list.filter(item => item.status.toLowerCase() === shortageStatusFilter.toLowerCase());
-    }
-
-    return filteredList;
-  }, [shortageServerRecords, shortageStatusFilter]);
-
-  // Unsaved draft items added in the current session (not yet saved to backend)
-  const unsavedDraftItems = React.useMemo(() => {
-    let items = shortageItems.filter(item => !item.isSaved);
-    if (shortageStatusFilter !== 'ALL') {
-      items = items.filter(item => (item.status || 'Pending').toLowerCase() === shortageStatusFilter.toLowerCase());
-    }
-    return items;
-  }, [shortageItems, shortageStatusFilter]);
-
-  const unsavedDraftSum = React.useMemo(() => {
-    return unsavedDraftItems.reduce((sum, item) => sum + (parseFloat(item.amount || '0') || 0), 0);
-  }, [unsavedDraftItems]);
-
-  // Sum of ALL shortage items (Paid + Pending) for summary modal
+  // Sum of ALL shortage items for this shift
   const totalShortageAmount = React.useMemo(() => {
     return shortageItems.reduce((sum, item) => sum + (parseFloat(item.amount || '0') || 0), 0);
   }, [shortageItems]);
 
-  // Sum of ONLY Paid / Recovered shortage items (contributes to live shift cash balance)
-  const paidShortageSum = React.useMemo(() => {
-    return shortageItems.reduce((sum, item) => {
-      const st = item.status || 'Paid';
-      if (st === 'Paid') {
-        return sum + (parseFloat(item.amount || '0') || 0);
-      }
-      return sum;
-    }, 0);
-  }, [shortageItems]);
-
-  // shortageVal: for current live draft — Paid items add to cash balance, falling back to cumulative DB shortages
   const currentEmpShortage = parseFloat(employeeShortage || '0') || 0;
-  const shortageVal = shortageItems.length > 0
-    ? paidShortageSum
-    : (currentEmpShortage > 0
-      ? currentEmpShortage
-      : (localPaidShortagesTotal > 0 ? localPaidShortagesTotal : localShortagesTotal));
-
+  const shortageVal = shortageItems.length > 0 ? totalShortageAmount : currentEmpShortage;
   const roundUpVal = parseFloat(roundUp || '0') || 0;
 
-  // effectiveShortage: paid shortages from UI items or DB baseline (never double counted)
-  const effectiveShortage = shortageItems.length > 0 ? paidShortageSum : (localPaidShortagesTotal > 0 ? localPaidShortagesTotal : localShortagesTotal);
-  const effectiveRoundUp = roundUpVal > 0 ? roundUpVal : localRoundUpTotal;
+  const effectiveShortage = shortageVal;
+  const effectiveRoundUp = roundUpVal;
 
   const handleAddShortageItem = () => {
     const defaultEmp = assignedDutyStaff.length > 0 ? assignedDutyStaff[0] : (employees.length > 0 ? employees[0] : null);
@@ -2973,7 +2344,6 @@ function MPDSummaryTab({
         employeeName: defaultEmp ? defaultEmp.name : '',
         shortageAction: 'Salary Deduction',
         shortageReason: '',
-        status: 'Paid',
         amount: initialAmt
       }
     ]);
@@ -3062,7 +2432,7 @@ function MPDSummaryTab({
 
   const testingAmt = displayProductWise.reduce((sum, r) => sum + (r.testing * r.rate), 0);
   const grossMeterSalesTotal = meterReadingTotal;
-  const rawBalance = meterReadingTotal - testingAmt - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal + effectiveShortage + effectiveRoundUp;
+  const rawBalance = meterReadingTotal - testingAmt - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal - effectiveShortage + effectiveRoundUp;
   const balance = Math.abs(rawBalance) < 0.001 ? 0 : rawBalance;
 
   const handleSaveAttribution = async () => {
@@ -3075,15 +2445,12 @@ function MPDSummaryTab({
       setSavingReconciliation(true);
 
       const itemsPayload: MpdReconciliationItem[] = shortageItems.map(item => {
-        const itemStatus = item.status || 'Pending';
         return {
           employeeId: item.employeeId ? parseInt(item.employeeId, 10) : undefined,
           employeeName: item.employeeName || employees.find(e => String(e.id) === item.employeeId)?.name,
           shortageAction: item.shortageAction || 'Salary Deduction',
           shortageReason: item.shortageReason || '',
-          amount: parseFloat(item.amount || '0') || 0,
-          status: itemStatus,
-          paidDate: itemStatus === 'Paid' ? (item.paidDate || targetDate) : undefined
+          amount: parseFloat(item.amount || '0') || 0
         };
       });
 
@@ -3100,7 +2467,6 @@ function MPDSummaryTab({
         employeeName: primaryEmp?.name || undefined,
         shortageAction: shortageItems.length > 0 ? shortageItems[0]?.shortageAction : shortageAction,
         shortageReason: shortageItems.length > 0 ? shortageItems[0]?.shortageReason : shortageReason,
-        status: shortageItems.length > 0 && shortageItems.every(i => i.status === 'Paid') ? 'Paid' : 'Pending',
         items: itemsPayload,
         roundUp: roundUpVal
       };
@@ -3108,16 +2474,12 @@ function MPDSummaryTab({
       await saveMpdReconciliationApi(payload);
 
       toast.success(`Reconciliation summary saved for ${resolvedMpdName} (${targetShift})!`);
-      setShortageItems([]);
-      loadServerReconciliations();
       if (resolvedMpdName) {
         fetchCumulativeReconciliationsApi(resolvedMpdName, targetDate)
           .then(cum => {
             setLocalShortagesTotal(cum.overallShortageSum || 0);
             setLocalPaidShortagesTotal(cum.paidShortageSum || 0);
             setLocalRoundUpTotal(cum.overallRoundUpSum || 0);
-            setOverallShortagesTotal(cum.overallShortageSum || 0);
-            setOverallRoundUpTotal(cum.overallRoundUpSum || 0);
           })
           .catch(err => console.error(err));
       }
@@ -3236,8 +2598,9 @@ function MPDSummaryTab({
         );
       })()}
 
-      {/* Employee Shortages & Shift Adjustments Section */}
+      {/* Employee Shortages & Shift Adjustments Section (Inline Direct Fields) */}
       <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg bg-card space-y-3 shadow-sm">
+        {/* Header Bar */}
         <div className="flex items-center justify-between pb-2 border-b">
           <h4 className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-300 tracking-wide flex items-center gap-1.5">
             <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
@@ -3245,9 +2608,9 @@ function MPDSummaryTab({
           </h4>
         </div>
 
-        {/* Compact Action Controls Row */}
+        {/* Compact Action Controls & Summary Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50/70 dark:bg-slate-900/40 border rounded-lg">
-          {/* Employee Shortage Box */}
+          {/* Employee Shortage Display */}
           <div className="flex items-center justify-between p-2.5 bg-background border border-amber-200/80 rounded-md">
             <div>
               <p className="text-[11px] font-semibold text-muted-foreground uppercase">Employee Shortage</p>
@@ -3260,23 +2623,13 @@ function MPDSummaryTab({
                 )}
               </p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setShowShortageModal(true)}
-              className="h-8 text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-medium gap-1 shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5 text-amber-600" />
-              {shortageVal > 0 ? 'Edit Shortages' : 'Add Shortage'}
-            </Button>
           </div>
 
-          {/* Shift Round Off Box with Inline Input */}
+          {/* Round Off Input */}
           <div className="flex items-center justify-between p-2.5 bg-background border border-blue-200/80 rounded-md gap-3">
             <div>
               <Label htmlFor="mpd-round-up-inline" className="text-[11px] font-semibold text-muted-foreground uppercase cursor-pointer">
-                Shift Round Off (₹)
+                Round off (₹)
               </Label>
               <p className="text-xs text-muted-foreground hidden sm:block">Adjustment for net balance</p>
             </div>
@@ -3296,760 +2649,173 @@ function MPDSummaryTab({
             />
           </div>
         </div>
+
+        {/* Direct Inline Fields for Active Shift Shortage Entries */}
+        <div className="space-y-2 pt-1">
+          {/* Header Labels */}
+          <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1 uppercase tracking-wide">
+            <div className="col-span-4">Duty Staff</div>
+            <div className="col-span-5">Reason / Remarks</div>
+            <div className="col-span-2 text-right">Shortage (₹)</div>
+            <div className="col-span-1 text-center">Add / Del</div>
+          </div>
+
+          {/* Dynamic Rows */}
+          {(shortageItems.length === 0
+            ? [{
+              employeeId: assignedDutyStaff.length > 0 ? assignedDutyStaff[0].id : '',
+              employeeName: assignedDutyStaff.length > 0 ? assignedDutyStaff[0].name : '',
+              shortageAction: 'Salary Deduction' as const,
+              shortageReason: '',
+              amount: ''
+            }]
+            : shortageItems
+          ).map((item, idx) => (
+            <div key={`shortage-row-${idx}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-slate-50/50 dark:bg-slate-900/30 p-2 border rounded-md">
+              {/* Duty Staff */}
+              <div className="sm:col-span-4 space-y-1">
+                <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase">Duty Staff</span>
+                <Select
+                  value={item.employeeId || ''}
+                  onValueChange={(val) => handleUpdateShortageItem(idx, 'employeeId', val)}
+                >
+                  <SelectTrigger className="h-9 text-xs bg-background">
+                    <SelectValue placeholder="Select Duty Staff..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignedDutyStaff.length > 0 ? (
+                      <>
+                        <SelectGroup>
+                          <SelectLabel className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-1 my-0.5 rounded flex items-center justify-between">
+                            <span>Active MPD Duty Staff</span>
+                            <span className="text-[9px] bg-emerald-200 dark:bg-emerald-900 px-1 py-0.2 rounded text-emerald-900 dark:text-emerald-100 font-normal">
+                              {assignedDutyStaff.length} On Duty
+                            </span>
+                          </SelectLabel>
+                          {assignedDutyStaff.map(s => (
+                            <SelectItem key={`duty-${s.id}`} value={s.id}>
+                              <div className="flex items-center justify-between w-full gap-2">
+                                <span>{s.name} {s.nozzleName ? `(${s.nozzleName})` : ''}</span>
+                                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
+                                  Active
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+
+                        {employees.filter(e => !assignedDutyStaff.some(s => s.id === String(e.id))).length > 0 && (
+                          <div className="mt-1 border-t pt-1">
+                            {!showOtherEmployees ? (
+                              <div
+                                className="flex items-center justify-between px-2 py-1.5 text-xs text-muted-foreground font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer rounded transition-colors"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setShowOtherEmployees(true);
+                                }}
+                              >
+                                <span>Other Employees ({employees.filter(e => !assignedDutyStaff.some(s => s.id === String(e.id))).length})</span>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </div>
+                            ) : (
+                              <SelectGroup>
+                                <div
+                                  className="flex items-center justify-between px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40 rounded cursor-pointer my-0.5"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setShowOtherEmployees(false);
+                                  }}
+                                >
+                                  <span>Other Employees (Not Assigned To MPD)</span>
+                                  <ChevronUp className="w-3 h-3" />
+                                </div>
+                                {employees
+                                  .filter(e => !assignedDutyStaff.some(s => s.id === String(e.id)))
+                                  .map(emp => (
+                                    <SelectItem key={`all-${emp.id}`} value={String(emp.id)}>
+                                      {emp.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectGroup>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <SelectGroup>
+                        <SelectLabel className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40 px-2 py-1 my-0.5 rounded">
+                          All Station Employees
+                        </SelectLabel>
+                        {employees.map(emp => (
+                          <SelectItem key={`all-${emp.id}`} value={String(emp.id)}>
+                            {emp.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Reason / Remarks */}
+              <div className="sm:col-span-5 space-y-1">
+                <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase">Reason / Remarks</span>
+                <Input
+                  placeholder="Enter remarks..."
+                  value={item.shortageReason || ''}
+                  onChange={(e) => handleUpdateShortageItem(idx, 'shortageReason', e.target.value)}
+                  className="h-9 text-xs bg-background"
+                />
+              </div>
+
+              {/* Shortage Amount */}
+              <div className="sm:col-span-2 space-y-1">
+                <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase">Shortage (₹)</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={item.amount || ''}
+                  onChange={(e) => handleUpdateShortageItem(idx, 'amount', e.target.value)}
+                  className="h-9 text-xs font-mono font-bold text-amber-800 text-right bg-background"
+                />
+              </div>
+
+              {/* Action Buttons (+ / Trash) */}
+              <div className="sm:col-span-1 flex items-center justify-end gap-1 px-1">
+                {shortageItems.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => handleRemoveShortageItem(idx)}
+                    title="Remove shortage row"
+                    className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+                {idx === (shortageItems.length > 0 ? shortageItems.length - 1 : 0) && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={handleAddShortageItem}
+                    title="Add another shortage row"
+                    className="h-8 w-8 text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border-amber-300 font-bold shrink-0 shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* ── Employee Shortages Modal ── */}
-      <Dialog open={showShortageModal} onOpenChange={setShowShortageModal}>
-        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto p-6">
-          <DialogHeader className="pb-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pr-10">
-            <div>
-              <DialogTitle className="text-lg font-bold flex items-center gap-2 text-amber-800 dark:text-amber-300">
-                <SlidersHorizontal className="w-5 h-5 text-amber-600 shrink-0" />
-                Employee Shortages Management
-              </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
-                View overall cumulative shortage records, track duty staff recoveries, and add shift shortage entries.
-              </DialogDescription>
-            </div>
 
-            <div className="flex items-center gap-2 shrink-0 pr-6">
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleOpenAddEntryModal}
-                className="bg-amber-600 hover:bg-amber-700 text-white text-xs gap-1.5 font-medium shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Shortage Entry
-              </Button>
-            </div>
-          </DialogHeader>
-
-          <div className="space-y-4 py-3">
-            {/* Total Summary Header Card (Dynamically updates when filters are applied) */}
-            <div className="flex items-center justify-between p-3.5 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg">
-              <div>
-                <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                  {isShortageFilterActive ? 'Filtered Employee Shortage Amount' : 'Overall Employee Shortage Amount'}
-                </span>
-                <p className="text-muted-foreground text-[11px]">
-                  {isShortageFilterActive ? (
-                    <>Filtered Total ({shortageServerTotalElements} entries): <span className="font-semibold text-amber-900">{formatIndianCurrency(filteredShortagesSum)}</span></>
-                  ) : (
-                    <>Cumulative Total: <span className="font-semibold text-amber-900">{formatIndianCurrency(localShortagesTotal > 0 ? localShortagesTotal : totalShortageAmount)}</span></>
-                  )}
-                  {unsavedDraftSum > 0 && (
-                    <span className="ml-2 text-amber-700 font-semibold">
-                      (Shift Active Unsaved Draft: {formatIndianCurrency(unsavedDraftSum)})
-                    </span>
-                  )}
-                </p>
-              </div>
-              <span className="text-lg font-bold font-mono text-amber-800 dark:text-amber-300">
-                {formatIndianCurrency(isShortageFilterActive ? filteredShortagesSum : (localShortagesTotal > 0 ? localShortagesTotal : totalShortageAmount))}
-              </span>
-            </div>
-
-            {/* Server Filter Toolbar with Debounced Search */}
-            <div className="p-3 bg-card border rounded-lg flex flex-wrap sm:flex-nowrap items-end gap-2 text-xs overflow-x-auto">
-              <div className="flex-1 min-w-[160px] space-y-1">
-                <Label className="text-[11px] font-semibold text-foreground">Search Duty Staff or MPD</Label>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Search Staff Name or MPD..."
-                    value={shortageSearchInput}
-                    onChange={(e) => setShortageSearchInput(e.target.value)}
-                    className="pl-8 h-9 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="w-[130px] shrink-0 space-y-1">
-                <Label className="text-[11px] font-semibold text-foreground">From Date</Label>
-                <Input
-                  type="date"
-                  value={shortageFromDate}
-                  onChange={(e) => {
-                    setShortageFromDate(e.target.value);
-                    setShortageServerPage(0);
-                  }}
-                  className="h-9 text-xs px-2"
-                />
-              </div>
-
-              <div className="w-[130px] shrink-0 space-y-1">
-                <Label className="text-[11px] font-semibold text-foreground">To Date</Label>
-                <Input
-                  type="date"
-                  value={shortageToDate}
-                  onChange={(e) => {
-                    setShortageToDate(e.target.value);
-                    setShortageServerPage(0);
-                  }}
-                  className="h-9 text-xs px-2"
-                />
-              </div>
-
-              <div className="w-[140px] shrink-0 space-y-1">
-                <Label className="text-[11px] font-semibold text-foreground">MPD Filter</Label>
-                <Select
-                  value={shortageMpdFilter}
-                  onValueChange={(val: any) => {
-                    setShortageMpdFilter(val);
-                    setShortageServerPage(0);
-                  }}
-                >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="All MPDs" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All MPDs</SelectItem>
-                    {mpdList.map((m: any) => {
-                      const label = m.mpdName || m.name || `MPD ${m.id}`;
-                      return (
-                        <SelectItem key={m.id || label} value={label}>
-                          {label}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="w-[120px] shrink-0 space-y-1">
-                <Label className="text-[11px] font-semibold text-foreground">Status</Label>
-                <Select
-                  value={shortageStatusFilter}
-                  onValueChange={(val: any) => {
-                    setShortageStatusFilter(val);
-                    setShortageServerPage(0);
-                  }}
-                >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All Statuses</SelectItem>
-                    <SelectItem value="Paid">Paid Only</SelectItem>
-                    <SelectItem value="Pending">Pending Only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Server-Paginated Grouped Table (1 Row Per Shift Reconciliation) */}
-            <div className="border rounded-lg overflow-hidden bg-card text-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-amber-50/80 dark:bg-amber-950/40 border-b border-amber-200 text-amber-900 dark:text-amber-200 font-semibold text-[11px]">
-                      <th className="py-2.5 px-3">Date & Shift</th>
-                      <th className="py-2.5 px-3">MPD</th>
-                      <th className="py-2.5 px-3">Duty Staff</th>
-                      <th className="py-2.5 px-3">Recovery Method</th>
-                      <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3">Paid Date</th>
-                      <th className="py-2.5 px-3">Reason / Remarks</th>
-                      <th className="py-2.5 px-3 text-right">Shortage (₹)</th>
-                      <th className="py-2.5 px-3 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {/* Render active shift unsaved draft entries directly inside table */}
-                    {unsavedDraftItems.map((item, dIdx) => (
-                      <tr key={`draft-${dIdx}`} className="bg-amber-50/70 dark:bg-amber-950/40 border-b border-amber-200">
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className="font-semibold text-foreground">{targetDate}</span>
-                          <div className="text-[10px] text-amber-700 font-bold">{targetShift}</div>
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-700 dark:text-slate-300">
-                          {resolvedMpdName}
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className="font-semibold text-indigo-900 dark:text-indigo-300">
-                            • {item.employeeName || `EMP #${item.employeeId || 'N/A'}`}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                          {item.shortageAction || 'Salary Deduction'}
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${item.status === 'Paid'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                            }`}>
-                            Draft ({item.status || 'Pending'})
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                          {item.status === 'Paid' ? (item.paidDate || targetDate) : '-'}
-                        </td>
-                        <td className="py-2.5 px-3 max-w-[200px] truncate text-muted-foreground" title={item.shortageReason || ''}>
-                          {item.shortageReason || '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800 dark:text-amber-300">
-                          {formatIndianCurrency(parseFloat(item.amount || '0'))}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => handleOpenEditDraftModal(dIdx)}
-                              title="Edit Draft Entry"
-                              className="h-7 w-7 text-amber-600 hover:text-amber-800 hover:bg-amber-50 shrink-0"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => handleRemoveShortageItem(dIdx)}
-                              title="Remove Unsaved Draft Entry"
-                              className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {shortageServerLoading ? (
-                      <tr>
-                        <td colSpan={9} className="py-8 text-center text-muted-foreground">
-                          <div className="flex items-center justify-center gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
-                            Loading shortage records...
-                          </div>
-                        </td>
-                      </tr>
-                    ) : flattenedShortageItems.length === 0 && shortageItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-8 text-center text-muted-foreground">
-                          No employee shortage records found.
-                        </td>
-                      </tr>
-                    ) : (
-                      flattenedShortageItems.map((itemRow, fIdx) => {
-                        const recStatus = itemRow.status || 'Pending';
-                        const isPending = recStatus === 'Pending';
-                        return (
-                          <tr key={itemRow.recId ? `flat-${itemRow.recId}-${fIdx}` : `flat-idx-${fIdx}`} className="hover:bg-muted/30 transition-colors">
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className="font-semibold text-foreground">{itemRow.date}</span>
-                              <div className="text-[10px] text-muted-foreground">{itemRow.shiftName}</div>
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-700 dark:text-slate-300">
-                              {itemRow.mpdName}
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className="font-semibold text-indigo-900 dark:text-indigo-300">
-                                • {itemRow.employeeName}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                              {itemRow.shortageAction}
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${recStatus === 'Paid'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                }`}>
-                                {recStatus}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                              {recStatus === 'Paid' ? (itemRow.paidDate || itemRow.date) : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 max-w-[200px] truncate text-muted-foreground" title={itemRow.shortageReason || ''}>
-                              {itemRow.shortageReason || '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800 dark:text-amber-300">
-                              {formatIndianCurrency(itemRow.amount || 0)}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                {/* EDIT Icon Button rendered ONLY when status is Pending! */}
-                                {recStatus === 'Pending' && (
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      const parentRec = shortageServerRecords.find(r => r.id === itemRow.recId) || {
-                                        id: itemRow.recId as number,
-                                        date: itemRow.date,
-                                        shiftName: itemRow.shiftName,
-                                        mpdName: itemRow.mpdName,
-                                        employeeShortage: itemRow.amount,
-                                        employeeId: itemRow.employeeId as number,
-                                        employeeName: itemRow.employeeName,
-                                        shortageAction: itemRow.shortageAction as any,
-                                        shortageReason: itemRow.shortageReason,
-                                        status: itemRow.status as any,
-                                        paidDate: itemRow.paidDate
-                                      };
-                                      setEditingRec(parentRec);
-                                      setEditingItemIndex(itemRow.itemIndex);
-                                      setEditingStatus((itemRow.status as any) || 'Pending');
-                                      setEditingPaidDate(itemRow.paidDate || new Date().toISOString().split('T')[0]);
-                                      setEditingShortageAction((itemRow.shortageAction as any) || 'Salary Deduction');
-                                      setEditingShortageReason(itemRow.shortageReason || '');
-                                      setEditingShortageAmount(itemRow.amount != null ? String(itemRow.amount) : '0');
-                                      setEditingItems(parentRec.items ? parentRec.items.map(i => ({ ...i })) : []);
-                                    }}
-                                    title="Edit Shortage Record"
-                                    className="h-7 w-7 text-amber-600 hover:text-amber-800 hover:bg-amber-50 shrink-0"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </Button>
-                                )}
-                                {itemRow.recId && (
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={async () => {
-                                      const empNameStr = itemRow.employeeName ? ` for ${itemRow.employeeName}` : '';
-                                      if (confirm(`Delete shortage entry${empNameStr} (${itemRow.date} - ${itemRow.shiftName})?`)) {
-                                        try {
-                                          const parentRec = shortageServerRecords.find(r => r.id === itemRow.recId);
-
-                                          if (parentRec && parentRec.items && parentRec.items.length > 1 && itemRow.itemIndex !== undefined) {
-                                            // Multiple items: remove ONLY the targeted item and update parent
-                                            const remainingItems = parentRec.items.filter((_, idx) => idx !== itemRow.itemIndex);
-                                            const newTotalShortage = remainingItems.reduce((sum, i) => sum + (i.amount || 0), 0);
-
-                                            const updatedPayload: any = {
-                                              ...parentRec,
-                                              employeeShortage: newTotalShortage,
-                                              items: remainingItems
-                                            };
-
-                                            await updateMpdReconciliationApi(parentRec.id!, updatedPayload);
-                                            toast.success(`Shortage entry${empNameStr} deleted successfully`);
-                                          } else {
-                                            // Single item: delete the parent reconciliation record
-                                            await deleteMpdReconciliationApi(itemRow.recId as number);
-                                            toast.success('Shortage record deleted successfully');
-                                          }
-
-                                          loadServerReconciliations();
-                                          if (resolvedMpdName) {
-                                            fetchCumulativeReconciliationsApi(resolvedMpdName, targetDate)
-                                              .then(cum => {
-                                                setLocalShortagesTotal(cum.overallShortageSum || 0);
-                                                setLocalPaidShortagesTotal(cum.paidShortageSum || 0);
-                                                setLocalRoundUpTotal(cum.overallRoundUpSum || 0);
-                                                setOverallShortagesTotal(cum.overallShortageSum || 0);
-                                                setOverallRoundUpTotal(cum.overallRoundUpSum || 0);
-                                              })
-                                              .catch(err => console.error(err));
-                                          }
-                                        } catch (err: any) {
-                                          toast.error(err?.message || 'Failed to delete record');
-                                        }
-                                      }
-                                    }}
-                                    title="Delete Shortage Entry"
-                                    className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Server Pagination Footer (25 items per page) */}
-              <div className="flex flex-col sm:flex-row items-center justify-between px-3 py-2 border-t bg-muted/20 gap-2">
-                <span className="text-muted-foreground text-[11px]">
-                  Showing Page <span className="font-semibold text-foreground">{shortageServerPage + 1}</span> of{' '}
-                  <span className="font-semibold text-foreground">{Math.max(1, shortageServerTotalPages)}</span> ({flattenedShortageItems.length + unsavedDraftItems.length} total shortage entries, 25 per page)
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={shortageServerPage === 0 || shortageServerLoading}
-                    onClick={() => setShortageServerPage(p => Math.max(0, p - 1))}
-                    className="h-7 text-xs px-2.5"
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={shortageServerPage >= shortageServerTotalPages - 1 || shortageServerLoading}
-                    onClick={() => setShortageServerPage(p => p + 1)}
-                    className="h-7 text-xs px-2.5"
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="pt-2 border-t flex flex-row justify-end gap-2">
-            <Button
-              type="button"
-              onClick={() => setShowShortageModal(false)}
-              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-5 h-9"
-            >
-              Done / Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Add / Edit Employee Shortage Entry Dialog ── */}
-      <Dialog open={showAddEntryModal} onOpenChange={setShowAddEntryModal}>
-        <DialogContent className="sm:max-w-md p-6">
-          <DialogHeader className="pb-2 border-b">
-            <DialogTitle className="text-base font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
-              {editingDraftIndex !== null ? <Pencil className="w-4 h-4 text-amber-600" /> : <Plus className="w-4 h-4 text-amber-600" />}
-              {editingDraftIndex !== null ? 'Edit Draft Shortage Entry' : 'Add Employee Shortage Entry'}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {editingDraftIndex !== null ? 'Modify draft shortage details' : `Add a shortage entry for active shift (${targetDate} - ${targetShift} - ${resolvedMpdName})`}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3.5 py-3 text-xs">
-            {/* Duty Staff Selector */}
-            <div className="space-y-1">
-              <Label className="font-semibold text-foreground">Duty Staff Member</Label>
-              <Select value={newEntryEmpId} onValueChange={setNewEntryEmpId}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Select Staff Member" />
-                </SelectTrigger>
-                <SelectContent>
-                  {assignedDutyStaff.map(s => (
-                    <SelectItem key={`assigned-${s.id}`} value={s.id}>⭐ {s.name}</SelectItem>
-                  ))}
-                  {employees.map(emp => (
-                    <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Recovery Method & Status */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="space-y-1">
-                <Label className="font-semibold text-foreground">Recovery Method</Label>
-                <Select value={newEntryAction} onValueChange={(val: any) => setNewEntryAction(val)}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Salary Deduction">Salary Deduction</SelectItem>
-                    <SelectItem value="Station Expense">Station Expense</SelectItem>
-                    <SelectItem value="Cash Recovery">Immediate Cash Recovery</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="font-semibold text-foreground">Status</Label>
-                <Select value={newEntryStatus} onValueChange={(val: any) => setNewEntryStatus(val)}>
-                  <SelectTrigger className="h-9 text-xs font-semibold">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Pending" className="text-amber-700 font-semibold">Pending (Hold)</SelectItem>
-                    <SelectItem value="Paid" className="text-emerald-700 font-semibold">Paid (Recovered)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Reason / Remarks */}
-            <div className="space-y-1">
-              <Label className="font-semibold text-foreground">Reason / Remarks</Label>
-              <Input
-                placeholder="Enter shortage reason..."
-                value={newEntryReason}
-                onChange={(e) => setNewEntryReason(e.target.value)}
-                className="h-9 text-xs"
-              />
-            </div>
-
-            {/* Shortage Amount (₹) */}
-            <div className="space-y-1">
-              <Label className="font-semibold text-foreground">Shortage Amount (₹)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={newEntryAmount}
-                onChange={(e) => setNewEntryAmount(e.target.value)}
-                className="h-9 text-xs font-mono font-bold text-amber-800 text-right"
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="pt-2 border-t flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowAddEntryModal(false)} className="h-8 text-xs">
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleConfirmAddEntry}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold h-8 text-xs gap-1.5"
-            >
-              {editingDraftIndex !== null ? 'Update Draft Entry' : 'Add Entry to Shift'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Edit Pending Shortage Record Dialog (Full Field Editing) ── */}
-      <Dialog open={!!editingRec} onOpenChange={(open) => { if (!open) setEditingRec(null); }}>
-        <DialogContent className="sm:max-w-xl p-6">
-          <DialogHeader className="pb-2 border-b">
-            <DialogTitle className="text-base font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
-              <Pencil className="w-4 h-4 text-amber-600" /> Edit Shortage Record
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Modify shortage details for {editingRec?.date} ({editingRec?.shiftName} - {editingRec?.mpdName})
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-3 text-xs max-h-[65vh] overflow-y-auto pr-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Status Selector */}
-              <div className="space-y-1">
-                <Label className="font-semibold text-foreground">Status</Label>
-                <Select value={editingStatus} onValueChange={(val: any) => setEditingStatus(val)}>
-                  <SelectTrigger className="h-9 font-semibold text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Paid" className="text-emerald-700 font-semibold">Paid (Recovered / Add to Cash Bal)</SelectItem>
-                    <SelectItem value="Pending" className="text-amber-700 font-semibold">Pending (Hold)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Paid / Recovery Date */}
-              {editingStatus === 'Paid' ? (
-                <div className="space-y-1">
-                  <Label className="font-semibold text-foreground">Paid / Recovery Date</Label>
-                  <Input
-                    type="date"
-                    value={editingPaidDate}
-                    onChange={(e) => setEditingPaidDate(e.target.value)}
-                    className="h-9 text-xs font-medium"
-                  />
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <Label className="font-semibold text-foreground">Recovery Method</Label>
-                  <Select value={editingShortageAction} onValueChange={(val: any) => setEditingShortageAction(val)}>
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Salary Deduction">Salary Deduction</SelectItem>
-                      <SelectItem value="Station Expense">Station Expense</SelectItem>
-                      <SelectItem value="Cash Recovery">Immediate Cash Recovery</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
-            {editingStatus === 'Paid' && (
-              <div className="space-y-1">
-                <Label className="font-semibold text-foreground">Recovery Method</Label>
-                <Select value={editingShortageAction} onValueChange={(val: any) => setEditingShortageAction(val)}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Salary Deduction">Salary Deduction</SelectItem>
-                    <SelectItem value="Station Expense">Station Expense</SelectItem>
-                    <SelectItem value="Cash Recovery">Immediate Cash Recovery</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Remarks / Reason */}
-            <div className="space-y-1">
-              <Label className="font-semibold text-foreground">Reason / Remarks</Label>
-              <Input
-                placeholder="Enter shortage reason or recovery notes..."
-                value={editingShortageReason}
-                onChange={(e) => setEditingShortageReason(e.target.value)}
-                className="h-9 text-xs"
-              />
-            </div>
-
-            {/* Duty Staff Itemized Editing */}
-            <div className="space-y-2 pt-2 border-t">
-              <Label className="font-semibold text-foreground flex items-center justify-between">
-                <span>Duty Staff Shortage Amounts (₹)</span>
-                {editingItems.length === 0 && (
-                  <span className="text-[10px] text-muted-foreground font-normal">Single Staff Record</span>
-                )}
-              </Label>
-
-              {editingItems.length > 0 ? (
-                <div className="space-y-2 bg-muted/20 p-2.5 rounded-lg border">
-                  {editingItems.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-card p-2 rounded border">
-                      <div className="flex-1 font-semibold text-indigo-900 text-xs">
-                        {item.employeeName || `EMP #${item.employeeId}`}
-                      </div>
-                      <div className="w-28">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={item.amount != null ? item.amount : ''}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            setEditingItems(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
-                          }}
-                          className="h-8 text-xs font-mono text-right font-bold text-amber-800"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={editingShortageAmount}
-                    onChange={(e) => setEditingShortageAmount(e.target.value)}
-                    className="h-9 text-xs font-mono font-bold text-amber-800 text-right"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter className="pt-2 border-t flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setEditingRec(null)} className="h-8 text-xs">
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={isSavingEdit}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold h-8 text-xs gap-1.5"
-              onClick={async () => {
-                if (!editingRec) return;
-                setIsSavingEdit(true);
-                try {
-                  let updatedItems: MpdReconciliationItem[] | undefined = undefined;
-                  let finalShortageSum = 0;
-
-                  if (editingItems && editingItems.length > 0) {
-                    if (editingItemIndex !== undefined && editingItemIndex >= 0 && editingItemIndex < editingItems.length) {
-                      updatedItems = editingItems.map((item, idx) => {
-                        if (idx === editingItemIndex) {
-                          return {
-                            ...item,
-                            shortageAction: editingShortageAction,
-                            shortageReason: editingShortageReason,
-                            status: editingStatus,
-                            paidDate: editingStatus === 'Paid' ? (editingPaidDate || new Date().toISOString().split('T')[0]) : undefined,
-                            amount: parseFloat(editingShortageAmount) || item.amount || 0
-                          };
-                        }
-                        return item;
-                      });
-                    } else {
-                      updatedItems = editingItems.map(item => ({
-                        ...item,
-                        shortageAction: editingShortageAction,
-                        shortageReason: editingShortageReason,
-                        status: editingStatus,
-                        paidDate: editingStatus === 'Paid' ? (editingPaidDate || new Date().toISOString().split('T')[0]) : undefined
-                      }));
-                    }
-                    finalShortageSum = updatedItems.reduce((sum, i) => sum + (i.amount || 0), 0);
-                  } else {
-                    finalShortageSum = parseFloat(editingShortageAmount) || 0;
-                  }
-
-                  const allPaid = updatedItems && updatedItems.length > 0
-                    ? updatedItems.every(i => i.status === 'Paid')
-                    : (editingStatus === 'Paid');
-
-                  const updatedRec: MpdReconciliationRecord = {
-                    ...editingRec,
-                    shortageAction: editingShortageAction,
-                    shortageReason: editingShortageReason,
-                    status: allPaid ? 'Paid' : 'Pending',
-                    paidDate: allPaid ? (editingPaidDate || new Date().toISOString().split('T')[0]) : undefined,
-                    employeeShortage: finalShortageSum,
-                    items: updatedItems
-                  };
-
-                  if (editingRec.id) {
-                    await updateMpdReconciliationApi(editingRec.id, updatedRec);
-                  } else {
-                    await saveMpdReconciliationApi(updatedRec);
-                  }
-                  toast.success('Shortage record updated successfully!');
-                  setEditingRec(null);
-                  setEditingItemIndex(undefined);
-
-                  if (updatedItems && updatedItems.length > 0) {
-                    setShortageItems(updatedItems.map(item => ({
-                      employeeId: item.employeeId != null ? String(item.employeeId) : '',
-                      employeeName: item.employeeName || '',
-                      shortageAction: (item.shortageAction as any) || 'Salary Deduction',
-                      shortageReason: item.shortageReason || '',
-                      amount: item.amount != null ? String(item.amount) : '0',
-                      status: (item.status as any) || 'Pending',
-                      paidDate: item.paidDate,
-                      isSaved: true
-                    })));
-                  }
-
-                  loadServerReconciliations();
-                  if (resolvedMpdName) {
-                    fetchCumulativeReconciliationsApi(resolvedMpdName, targetDate)
-                      .then(cum => {
-                        setLocalShortagesTotal(cum.overallShortageSum || 0);
-                        setLocalPaidShortagesTotal(cum.paidShortageSum || 0);
-                        setLocalRoundUpTotal(cum.overallRoundUpSum || 0);
-                        setOverallShortagesTotal(cum.overallShortageSum || 0);
-                        setOverallRoundUpTotal(cum.overallRoundUpSum || 0);
-                      })
-                      .catch(err => console.error(err));
-                  }
-                } catch (err: any) {
-                  toast.error(err?.message || 'Failed to update shortage record');
-                } finally {
-                  setIsSavingEdit(false);
-                }
-              }}
-            >
-              {isSavingEdit ? 'Saving...' : 'Save Shortage Record'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
 
 
@@ -4070,17 +2836,17 @@ function MPDSummaryTab({
 
       {/* Balance */}
       <div className={`flex items-center justify-between px-5 py-4 rounded-lg border-2 ${Math.abs(balance) < 0.01
-          ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800'
-          : balance > 0
-            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
-            : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800'
+        ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800'
+        : balance > 0
+          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+          : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800'
         }`}>
         <span className="font-semibold text-base">Balance Amount - {resolvedMpdName}</span>
         <span className={`text-xl font-bold font-mono ${Math.abs(balance) < 0.01
-            ? 'text-purple-700 dark:text-purple-300'
-            : balance > 0
-              ? 'text-emerald-700 dark:text-emerald-300'
-              : 'text-red-700 dark:text-red-300'
+          ? 'text-purple-700 dark:text-purple-300'
+          : balance > 0
+            ? 'text-emerald-700 dark:text-emerald-300'
+            : 'text-red-700 dark:text-red-300'
           }`}>
           {formatIndianCurrency(balance)}
         </span>
@@ -5086,57 +3852,46 @@ function OilSaleTab() {
 }
 
 // Read-Only Employee Shortages Management Modal for Consolidated Summary
-function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [page, setPage] = React.useState(0);
-  const [search, setSearch] = React.useState('');
-  const [debouncedSearch, setDebouncedSearch] = React.useState('');
-  const [fromDate, setFromDate] = React.useState('');
-  const [toDate, setToDate] = React.useState('');
-  const [status, setStatus] = React.useState('ALL');
-  const [mpdFilter, setMpdFilter] = React.useState('ALL');
-  const [mpdList, setMpdList] = React.useState<MPD[]>([]);
+function SummaryShortagesModal({
+  open,
+  onOpenChange,
+  selectedDate,
+  selectedShift
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selectedDate?: string;
+  selectedShift?: string;
+}) {
   const [loading, setLoading] = React.useState(false);
   const [serverRecords, setServerRecords] = React.useState<MpdReconciliationRecord[]>([]);
-  const [totalElements, setTotalElements] = React.useState(0);
-  const [totalPages, setTotalPages] = React.useState(1);
   const [overallTotalSum, setOverallTotalSum] = React.useState(0);
-
-  React.useEffect(() => {
-    if (open) {
-      fetchMpdsAll().then(setMpdList).catch(() => []);
-    }
-  }, [open]);
-
-  React.useEffect(() => {
-    const handler = setTimeout(() => setDebouncedSearch(search), 350);
-    return () => clearTimeout(handler);
-  }, [search]);
 
   const loadData = React.useCallback(async () => {
     if (!open) return;
     setLoading(true);
+    const targetDateVal = selectedDate || new Date().toISOString().slice(0, 10);
     try {
       const res = await fetchPaginatedReconciliationsApi({
-        page,
-        size: 25,
-        search: debouncedSearch || undefined,
-        mpdName: mpdFilter !== 'ALL' ? mpdFilter : undefined,
-        status: status !== 'ALL' ? status : undefined,
-        fromDate: fromDate || undefined,
-        toDate: toDate || undefined
+        date: targetDateVal,
+        shift: selectedShift,
+        page: 0,
+        size: 1000
       });
-      setServerRecords(res.content || []);
-      setTotalElements(res.totalElements || 0);
-      setTotalPages(res.totalPages || 1);
+      const content = (res.content || []).filter((r: any) =>
+        r.date === targetDateVal &&
+        (!selectedShift || isSameShift(r.shiftName || r.shift, selectedShift))
+      );
+      setServerRecords(content);
 
-      const cum = await fetchCumulativeReconciliationsApi(mpdFilter !== 'ALL' ? mpdFilter : undefined, toDate || undefined);
-      setOverallTotalSum(cum.overallShortageSum || 0);
+      const sum = content.reduce((acc: number, r: any) => acc + (Number(r.employeeShortage) || 0), 0);
+      setOverallTotalSum(sum);
     } catch (err) {
       console.error('Failed to fetch summary shortage records:', err);
     } finally {
       setLoading(false);
     }
-  }, [open, page, debouncedSearch, mpdFilter, status, fromDate, toDate]);
+  }, [open, selectedDate, selectedShift]);
 
   React.useEffect(() => {
     if (open) {
@@ -5152,8 +3907,6 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
       mpdName: string;
       employeeName: string;
       shortageAction: string;
-      status: string;
-      paidDate?: string;
       shortageReason: string;
       amount: number;
     }> = [];
@@ -5161,73 +3914,49 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
     serverRecords.forEach(rec => {
       if (rec.items && rec.items.length > 0) {
         rec.items.forEach(i => {
-          const st = i.status || rec.status || 'Pending';
           list.push({
-            id: rec.id || 0,
+            id: rec.id ? Number(rec.id) : 0,
             date: rec.date,
             shiftName: rec.shiftName,
             mpdName: rec.mpdName,
             employeeName: i.employeeName || rec.employeeName || 'Staff Member',
             shortageAction: i.shortageAction || rec.shortageAction || 'Salary Deduction',
-            status: st,
-            paidDate: st === 'Paid' ? (i.paidDate || rec.paidDate || rec.date) : undefined,
             shortageReason: i.shortageReason || rec.shortageReason || '',
             amount: i.amount != null ? i.amount : 0
           });
         });
       } else {
-        const st = rec.status || 'Pending';
         list.push({
-          id: rec.id || 0,
+          id: rec.id ? Number(rec.id) : 0,
           date: rec.date,
           shiftName: rec.shiftName,
           mpdName: rec.mpdName,
           employeeName: rec.employeeName || 'Staff Member',
           shortageAction: rec.shortageAction || 'Salary Deduction',
-          status: st,
-          paidDate: st === 'Paid' ? (rec.paidDate || rec.date) : undefined,
           shortageReason: rec.shortageReason || '',
           amount: rec.employeeShortage || 0
         });
       }
     });
 
-    let resList = list;
-    if (status !== 'ALL') {
-      resList = resList.filter(i => i.status.toLowerCase() === status.toLowerCase());
-    }
-    if (mpdFilter !== 'ALL') {
-      const digits = mpdFilter.replace(/\D+/g, '');
-      resList = resList.filter(i => {
-        const mpdLower = (i.mpdName || '').toLowerCase();
-        if (digits) return mpdLower.includes(digits.toLowerCase());
-        return mpdLower.includes(mpdFilter.toLowerCase());
-      });
-    }
-    if (fromDate) {
-      resList = resList.filter(i => i.date >= fromDate);
-    }
-    if (toDate) {
-      resList = resList.filter(i => i.date <= toDate);
-    }
-    return resList;
-  }, [serverRecords, status, mpdFilter, fromDate, toDate]);
+    return list;
+  }, [serverRecords]);
 
-  const filteredSum = React.useMemo(() => {
+  const totalSum = React.useMemo(() => {
     return flattened.reduce((sum, item) => sum + (item.amount || 0), 0);
   }, [flattened]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto p-6">
+      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto p-6">
         <DialogHeader className="pb-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pr-10">
           <div>
             <DialogTitle className="text-lg font-bold flex items-center gap-2 text-amber-800 dark:text-amber-300">
               <SlidersHorizontal className="w-5 h-5 text-amber-600 shrink-0" />
-              Employee Shortages Management
+              Employee Shortages Summary
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              View overall cumulative shortage records, track duty staff recoveries across all MPDs.
+              View overall cumulative shortage records across all MPDs.
             </DialogDescription>
           </div>
         </DialogHeader>
@@ -5236,84 +3965,15 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="flex items-center justify-between p-3.5 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg">
             <div>
               <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                Overall Employee Shortage Amount
+                Active Shift Employee Shortages Amount
               </span>
               <p className="text-muted-foreground text-[11px]">
-                Cumulative Total: <span className="font-semibold text-amber-900">{formatIndianCurrency(overallTotalSum > 0 ? overallTotalSum : filteredSum)}</span>
+                Active Shift Total ({flattened.length} entries): <span className="font-semibold text-amber-900">{formatIndianCurrency(overallTotalSum > 0 ? overallTotalSum : totalSum)}</span>
               </p>
             </div>
             <span className="text-lg font-bold font-mono text-amber-800 dark:text-amber-300">
-              {formatIndianCurrency(overallTotalSum > 0 ? overallTotalSum : filteredSum)}
+              {formatIndianCurrency(overallTotalSum > 0 ? overallTotalSum : totalSum)}
             </span>
-          </div>
-
-          <div className="p-3 bg-card border rounded-lg flex flex-wrap sm:flex-nowrap items-end gap-2 text-xs overflow-x-auto">
-            <div className="flex-1 min-w-[160px] space-y-1">
-              <Label className="text-[11px] font-semibold text-foreground">Search Duty Staff or MPD</Label>
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                <Input
-                  placeholder="Search Staff Name or MPD..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 h-9 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="w-[130px] shrink-0 space-y-1">
-              <Label className="text-[11px] font-semibold text-foreground">From Date</Label>
-              <Input
-                type="date"
-                value={fromDate}
-                onChange={(e) => { setFromDate(e.target.value); setPage(0); }}
-                className="h-9 text-xs px-2"
-              />
-            </div>
-
-            <div className="w-[130px] shrink-0 space-y-1">
-              <Label className="text-[11px] font-semibold text-foreground">To Date</Label>
-              <Input
-                type="date"
-                value={toDate}
-                onChange={(e) => { setToDate(e.target.value); setPage(0); }}
-                className="h-9 text-xs px-2"
-              />
-            </div>
-
-            <div className="w-[140px] shrink-0 space-y-1">
-              <Label className="text-[11px] font-semibold text-foreground">MPD Filter</Label>
-              <Select value={mpdFilter} onValueChange={(val) => { setMpdFilter(val); setPage(0); }}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="All MPDs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All MPDs</SelectItem>
-                  {mpdList.map((m: any) => {
-                    const label = m.mpdName || m.name || `MPD ${m.id}`;
-                    return (
-                      <SelectItem key={m.id || label} value={label}>
-                        {label}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-[120px] shrink-0 space-y-1">
-              <Label className="text-[11px] font-semibold text-foreground">Status</Label>
-              <Select value={status} onValueChange={(val) => { setStatus(val); setPage(0); }}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Statuses</SelectItem>
-                  <SelectItem value="Paid">Paid Only</SelectItem>
-                  <SelectItem value="Pending">Pending Only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <div className="border rounded-lg overflow-hidden">
@@ -5324,18 +3984,14 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
                     <th className="py-2.5 px-3 text-left whitespace-nowrap">Date & Shift</th>
                     <th className="py-2.5 px-3 text-left whitespace-nowrap">MPD</th>
                     <th className="py-2.5 px-3 text-left whitespace-nowrap">Duty Staff</th>
-                    <th className="py-2.5 px-3 text-left whitespace-nowrap">Recovery Method</th>
-                    <th className="py-2.5 px-3 text-left whitespace-nowrap">Status</th>
-                    <th className="py-2.5 px-3 text-left whitespace-nowrap">Paid Date</th>
                     <th className="py-2.5 px-3 text-left">Reason / Remarks</th>
                     <th className="py-2.5 px-3 text-right whitespace-nowrap">Shortage (₹)</th>
-                    <th className="py-2.5 px-3 text-center whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-muted-foreground text-xs">
+                      <td colSpan={5} className="py-8 text-center text-muted-foreground text-xs">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
                           Loading shortage records...
@@ -5357,68 +4013,23 @@ function SummaryShortagesModal({ open, onOpenChange }: { open: boolean; onOpenCh
                             • {itemRow.employeeName}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                          {itemRow.shortageAction}
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${itemRow.status === 'Paid'
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                            }`}>
-                            {itemRow.status}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
-                          {itemRow.status === 'Paid' ? (itemRow.paidDate || itemRow.date) : '-'}
-                        </td>
                         <td className="py-2.5 px-3 max-w-[200px] truncate text-muted-foreground" title={itemRow.shortageReason || ''}>
                           {itemRow.shortageReason || '-'}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800 dark:text-amber-300">
                           {formatIndianCurrency(itemRow.amount || 0)}
                         </td>
-                        <td className="py-2.5 px-3 text-center text-muted-foreground">
-                          -
-                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-muted-foreground text-xs">
-                        No employee shortage records found.
+                      <td colSpan={5} className="py-8 text-center text-muted-foreground text-xs">
+                        No employee shortage records found for active shift.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-            </div>
-
-            <div className="p-3 bg-muted/20 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-              <div>
-                Showing Page <span className="font-semibold text-foreground">{page + 1}</span> of <span className="font-semibold text-foreground">{totalPages}</span> ({totalElements} total shortage entries, 25 per page)
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={page === 0 || loading}
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  className="h-8 text-xs px-3"
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages - 1 || loading}
-                  onClick={() => setPage(p => p + 1)}
-                  className="h-8 text-xs px-3"
-                >
-                  Next
-                </Button>
-              </div>
             </div>
           </div>
         </div>
@@ -5433,6 +4044,19 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
   const [loading, setLoading] = React.useState(true);
   const [selectedDate, setSelectedDate] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [rateMaster, setRateMaster] = React.useState<Record<string, number>>({});
+  const [selectedShift, setSelectedShift] = React.useState('');
+  const [now, setNow] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeShiftName = React.useMemo(() => {
+    return getActiveShiftNameFromMaster(masterShifts, now);
+  }, [masterShifts, now]);
 
   React.useEffect(() => {
     const loadMasterData = async () => {
@@ -5533,6 +4157,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
   const [allMpdsShortagesTotal, setAllMpdsShortagesTotal] = React.useState(0);
   const [allMpdsPaidShortagesTotal, setAllMpdsPaidShortagesTotal] = React.useState(0);
   const [allMpdsRoundUpTotal, setAllMpdsRoundUpTotal] = React.useState(0);
+  const [allMpdsShortageItems, setAllMpdsShortageItems] = React.useState<Array<{ mpdName: string; employeeName: string; shortageReason: string; amount: number }>>([]);
   const [allMpdsFuelSales, setAllMpdsFuelSales] = React.useState<Array<{ product: string; units: number; rate: number; amount: number }>>([]);
   const [totalsRefreshKey, setTotalsRefreshKey] = React.useState(0);
   const [showSummaryShortageModal, setShowSummaryShortageModal] = React.useState(false);
@@ -5544,12 +4169,16 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
     let cancelled = false;
     const loadAllMpdsTotals = async () => {
       const targetDateVal = selectedDate || new Date().toISOString().slice(0, 10);
+      const activeShiftVal = selectedShift || activeShiftName;
 
+      let hasActiveShiftMeterReadingsAll = false;
       try {
-        const meterRes = await fetchMeterReadingsHistory({ size: 100000, toDate: targetDateVal });
+        const meterRes = await fetchMeterReadingsHistory({ size: 100000, fromDate: targetDateVal, toDate: targetDateVal });
         if (!cancelled && meterRes.content) {
-          const validRows = meterRes.content.filter((r: any) => !r.date || r.date <= targetDateVal);
-
+          const validRows = meterRes.content.filter((r: any) =>
+            r.date === targetDateVal &&
+            (!activeShiftVal || isSameShift(r.shiftName || r.shift, activeShiftVal))
+          );
           const fuelGroup: Record<string, { testing: number; units: number; amount: number; rateSum: number; count: number }> = {};
           let totalMeterSalesAmt = 0;
           let totalMeterSalesVol = 0;
@@ -5575,6 +4204,8 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             }
           });
 
+          hasActiveShiftMeterReadingsAll = validRows.length > 0 && (totalMeterSalesAmt > 0 || totalMeterSalesVol > 0);
+
           setAllMpdsMeterTotal(totalMeterSalesAmt);
           setAllMpdsMeterVolume(totalMeterSalesVol);
 
@@ -5587,78 +4218,130 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
           }));
           setAllMpdsFuelSales(fuelList);
         }
-      } catch (err) {
-        console.error('Failed to load all MPDs meter readings:', err);
-      }
 
-      try {
-        const creditRes = await fetchCreditSales({ size: 100000 });
-        if (!cancelled && creditRes.content) {
-          const validCredit = creditRes.content.filter((r: any) => !r.date || r.date <= targetDateVal);
-          const credTot = validCredit.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
-          setAllMpdsCreditTotal(credTot);
-          setAllMpdsCreditCount(validCredit.length);
-        }
-      } catch (err) {
-        console.error('Failed to load all MPDs credit sales:', err);
-      }
+        if (!hasActiveShiftMeterReadingsAll) {
+          setAllMpdsCreditTotal(0);
+          setAllMpdsCreditCount(0);
+          setAllMpdsOwnUseTotal(0);
+          setAllMpdsOwnUseCount(0);
+          setAllMpdsSettlementsTotal(0);
+          setAllMpdsSettlementsCount(0);
+          setAllMpdsSettlementsByMode([]);
+          setAllMpdsDepositsTotal(0);
+          setAllMpdsDepositsCount(0);
+        } else {
+          try {
+            const creditRes = await fetchCreditSales({ size: 100000, fromDate: targetDateVal, toDate: targetDateVal });
+            if (!cancelled && creditRes.content) {
+              const validCredit = creditRes.content.filter((r: any) =>
+                r.date === targetDateVal &&
+                (!activeShiftVal || (!r.shift && !r.shiftName) || isSameShift(r.shiftName || r.shift, activeShiftVal))
+              );
+              const credTot = validCredit.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
+              setAllMpdsCreditTotal(credTot);
+              setAllMpdsCreditCount(validCredit.length);
+            }
+          } catch (err) {
+            console.error('Failed to load all MPDs credit sales:', err);
+          }
 
-      try {
-        const ownUseRes = await fetchOwnUsages({ size: 100000 });
-        if (!cancelled && ownUseRes.content) {
-          const validOwnUse = ownUseRes.content.filter((r: any) => !r.date || r.date <= targetDateVal);
-          const ownTot = validOwnUse.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
-          setAllMpdsOwnUseTotal(ownTot);
-          setAllMpdsOwnUseCount(validOwnUse.length);
-        }
-      } catch (err) {
-        console.error('Failed to load all MPDs own use:', err);
-      }
+          try {
+            const ownUseRes = await fetchOwnUsages({ size: 100000, fromDate: targetDateVal, toDate: targetDateVal });
+            if (!cancelled && ownUseRes.content) {
+              const validOwnUse = ownUseRes.content.filter((r: any) =>
+                r.date === targetDateVal &&
+                (!activeShiftVal || (!r.shift && !r.shiftName) || isSameShift(r.shiftName || r.shift, activeShiftVal))
+              );
+              const ownTot = validOwnUse.reduce((sum: number, r: any) => sum + (Number(r.totalAmount) || Number(r.amount) || 0), 0);
+              setAllMpdsOwnUseTotal(ownTot);
+              setAllMpdsOwnUseCount(validOwnUse.length);
+            }
+          } catch (err) {
+            console.error('Failed to load all MPDs own use:', err);
+          }
 
-      try {
-        const settleRes = await fetchSettlementsAll(targetDateVal);
-        if (!cancelled && settleRes) {
-          const validSettle = (settleRes || []).filter((r: any) => !r.date || r.date <= targetDateVal);
-          const setTot = validSettle.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
-          setAllMpdsSettlementsTotal(setTot);
-          setAllMpdsSettlementsCount(validSettle.length);
+          try {
+            const settleRes = await fetchSettlementsAll(targetDateVal);
+            if (!cancelled && settleRes) {
+              const validSettle = (settleRes || []).filter((r: any) =>
+                r.date === targetDateVal &&
+                (!activeShiftVal || (!r.shift && !r.shiftName) || isSameShift(r.shiftName || r.shift, activeShiftVal))
+              );
+              const setTot = validSettle.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+              setAllMpdsSettlementsTotal(setTot);
+              setAllMpdsSettlementsCount(validSettle.length);
 
-          const modeGroup: Record<string, { count: number; amount: number }> = {};
-          validSettle.forEach((r: any) => {
-            const mode = r.paymentMethod || r.mode || 'Other';
-            if (!modeGroup[mode]) modeGroup[mode] = { count: 0, amount: 0 };
-            modeGroup[mode].count += 1;
-            modeGroup[mode].amount += Number(r.amount) || 0;
-          });
-          const modeList = Object.keys(modeGroup).map(m => ({
-            mode: m,
-            count: modeGroup[m].count,
-            amount: modeGroup[m].amount
-          }));
-          setAllMpdsSettlementsByMode(modeList);
-        }
-      } catch (err) {
-        console.error('Failed to load all MPDs settlements:', err);
-      }
+              const modeGroup: Record<string, { count: number; amount: number }> = {};
+              validSettle.forEach((r: any) => {
+                const mode = r.paymentMethod || r.mode || 'Other';
+                if (!modeGroup[mode]) modeGroup[mode] = { count: 0, amount: 0 };
+                modeGroup[mode].count += 1;
+                modeGroup[mode].amount += Number(r.amount) || 0;
+              });
+              const modeList = Object.keys(modeGroup).map(m => ({
+                mode: m,
+                count: modeGroup[m].count,
+                amount: modeGroup[m].amount
+              }));
+              setAllMpdsSettlementsByMode(modeList);
+            }
+          } catch (err) {
+            console.error('Failed to load all MPDs settlements:', err);
+          }
 
-      try {
-        const depositsRes = await fetchCashCollections({ size: 100000 });
-        if (!cancelled && depositsRes.content) {
-          const validDeposits = depositsRes.content.filter((r: any) => !r.date || r.date <= targetDateVal);
-          const depTot = validDeposits.reduce((sum: number, r: any) => sum + (Number(r.depositAmount) || Number(r.amount) || 0), 0);
-          setAllMpdsDepositsTotal(depTot);
-          setAllMpdsDepositsCount(validDeposits.length);
+          try {
+            const depositsRes = await fetchCashCollections({ size: 100000, fromDate: targetDateVal, toDate: targetDateVal });
+            if (!cancelled && depositsRes.content) {
+              const validDeposits = depositsRes.content.filter((r: any) =>
+                r.date === targetDateVal &&
+                (!activeShiftVal || (!r.shift && !r.shiftName) || isSameShift(r.shift || r.shiftName, activeShiftVal))
+              );
+              const depTot = validDeposits.reduce((sum: number, r: any) => sum + (Number(r.depositAmount) || Number(r.amount) || 0), 0);
+              setAllMpdsDepositsTotal(depTot);
+              setAllMpdsDepositsCount(validDeposits.length);
+            }
+          } catch (err) {
+            console.error('Failed to load all MPDs deposits:', err);
+          }
         }
       } catch (err) {
         console.error('Failed to load all MPDs deposits:', err);
       }
 
       try {
-        const cumRecRes = await fetchCumulativeReconciliationsApi(undefined, targetDateVal);
-        if (!cancelled && cumRecRes) {
-          setAllMpdsShortagesTotal(cumRecRes.overallShortageSum || 0);
-          setAllMpdsPaidShortagesTotal(cumRecRes.paidShortageSum || 0);
-          setAllMpdsRoundUpTotal(cumRecRes.overallRoundUpSum || 0);
+        const recRes = await fetchPaginatedReconciliationsApi({ fromDate: targetDateVal, toDate: targetDateVal, size: 1000 });
+        if (!cancelled && recRes.content) {
+          const validRecs = (recRes.content || []).filter((r: any) =>
+            r.date === targetDateVal &&
+            (!activeShiftVal || isSameShift(r.shiftName || r.shift, activeShiftVal))
+          );
+          const shortTot = validRecs.reduce((sum: number, r: any) => sum + (Number(r.employeeShortage) || 0), 0);
+          const roundTot = validRecs.reduce((sum: number, r: any) => sum + (Number(r.roundUp) || 0), 0);
+          setAllMpdsShortagesTotal(shortTot);
+          setAllMpdsPaidShortagesTotal(0);
+          setAllMpdsRoundUpTotal(roundTot);
+
+          const itemsList: Array<{ mpdName: string; employeeName: string; shortageReason: string; amount: number }> = [];
+          validRecs.forEach((r: any) => {
+            if (r.items && r.items.length > 0) {
+              r.items.forEach((i: any) => {
+                itemsList.push({
+                  mpdName: r.mpdName || 'MPD',
+                  employeeName: i.employeeName || r.employeeName || 'Staff Member',
+                  shortageReason: i.shortageReason || r.shortageReason || '',
+                  amount: Number(i.amount) || 0
+                });
+              });
+            } else if (Number(r.employeeShortage) > 0) {
+              itemsList.push({
+                mpdName: r.mpdName || 'MPD',
+                employeeName: r.employeeName || 'Staff Member',
+                shortageReason: r.shortageReason || '',
+                amount: Number(r.employeeShortage) || 0
+              });
+            }
+          });
+          setAllMpdsShortageItems(itemsList);
         }
       } catch (err) {
         console.error('Failed to load all MPDs reconciliations:', err);
@@ -5667,19 +4350,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
 
     loadAllMpdsTotals();
     return () => { cancelled = true; };
-  }, [selectedDate, activeSubTab, activeMainTab, totalsRefreshKey]);
-
-  const [now, setNow] = React.useState(() => new Date());
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 30000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const activeShiftName = React.useMemo(() => {
-    return getActiveShiftNameFromMaster(masterShifts, now);
-  }, [masterShifts, now]);
+  }, [selectedDate, selectedShift, activeShiftName, activeSubTab, activeMainTab, totalsRefreshKey]);
 
   const mainTabs = React.useMemo(() => {
     const tabs = [];
@@ -5827,6 +4498,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                   onSubTabChange={handleSubTabChange}
                   rateMaster={rateMaster}
                   activeShiftName={activeShiftName}
+                  onShiftChange={setSelectedShift}
                 />
               </TabsContent>
             );
@@ -5954,8 +4626,8 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                           <tr key={idx} className="hover:bg-muted/20">
                             <td className="p-2.5">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${item.product.toLowerCase().includes('petrol')
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                                  : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
                                 }`}>
                                 {item.product}
                               </span>
@@ -5971,7 +4643,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                       ) : (
                         <tr>
                           <td colSpan={5} className="p-4 text-center text-muted-foreground text-xs">
-                            No meter reading entries recorded for selected date
+                            No meter reading entries recorded
                           </td>
                         </tr>
                       )}
@@ -6026,7 +4698,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                       ) : (
                         <tr>
                           <td colSpan={3} className="p-4 text-center text-muted-foreground text-xs">
-                            No shift settlements recorded for selected date
+                            No shift settlements recorded
                           </td>
                         </tr>
                       )}
@@ -6042,49 +4714,87 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                 </div>
               </div>
 
-              {/* Employee Shortages & Adjustments Card */}
-              <div className="p-4 border rounded-lg bg-amber-50/70 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 shadow-sm space-y-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-amber-200/80 pb-3">
-                  <div>
-                    <h3 className="font-bold text-amber-900 dark:text-amber-200 text-sm flex items-center gap-1.5">
-                      <SlidersHorizontal className="w-4 h-4 text-amber-600" />
-                      Employee Shortages & Adjustments (All MPDs)
-                    </h3>
-                    <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
-                      Overall cumulative staff shortages and roundup adjustments across all MPDs
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowSummaryShortageModal(true)}
-                    className="h-8 text-xs bg-white dark:bg-slate-900 border-amber-300 hover:bg-amber-100 text-amber-900 font-semibold gap-1.5 shadow-sm"
-                  >
+              {/* Employee Shortages & Shift Adjustments Section (All MPDs Combined) */}
+              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg bg-card space-y-3 shadow-sm">
+                {/* Header Bar */}
+                <div className="flex items-center justify-between pb-2 border-b">
+                  <h4 className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-300 tracking-wide flex items-center gap-1.5">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
-                    View Employee Shortages Ledger
-                  </Button>
+                    Employee Shortages &amp; Adjustments (All MPDs)
+                  </h4>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded border border-amber-200">
-                    <span className="text-[11px] text-muted-foreground font-medium">Cumulative Shortages Total</span>
-                    <p className="text-base font-bold text-amber-800 dark:text-amber-300 font-mono mt-0.5">
-                      {formatIndianCurrency(allMpdsShortagesTotal)}
-                    </p>
+                {/* Compact Action Controls & Summary Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50/70 dark:bg-slate-900/40 border rounded-lg">
+                  {/* Employee Shortage Display */}
+                  <div className="flex items-center justify-between p-2.5 bg-background border border-amber-200/80 rounded-md">
+                    <div>
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase">Employee Shortage</p>
+                      <p className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
+                        {formatIndianCurrency(allMpdsShortagesTotal)}
+                        {allMpdsShortageItems.length > 0 && (
+                          <span className="text-[10px] font-normal text-muted-foreground ml-1.5">
+                            ({allMpdsShortageItems.length} {allMpdsShortageItems.length === 1 ? 'entry' : 'entries'})
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded border border-emerald-200">
-                    <span className="text-[11px] text-emerald-700 font-medium">Paid / Recovered Shortages (Balance Offset)</span>
-                    <p className="text-base font-bold text-emerald-700 dark:text-emerald-300 font-mono mt-0.5">
-                      +{formatIndianCurrency(allMpdsPaidShortagesTotal)}
-                    </p>
+
+                  {/* Round Off Display */}
+                  <div className="flex items-center justify-between p-2.5 bg-background border border-blue-200/80 rounded-md">
+                    <div>
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase">Round off (₹)</p>
+                      <p className="text-sm font-bold font-mono text-blue-700 dark:text-blue-300">
+                        +{formatIndianCurrency(allMpdsRoundUpTotal)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded border border-blue-200">
-                    <span className="text-[11px] text-blue-700 font-medium">Round Up Adjustment</span>
-                    <p className="text-base font-bold text-blue-700 dark:text-blue-300 font-mono mt-0.5">
-                      +{formatIndianCurrency(allMpdsRoundUpTotal)}
-                    </p>
+                </div>
+
+                {/* Direct Inline Table for Active Shift Shortage Entries (Without Action Buttons) */}
+                <div className="space-y-2 pt-1">
+                  {/* Header Labels */}
+                  <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1 uppercase tracking-wide">
+                    <div className="col-span-5">DUTY STAFF</div>
+                    <div className="col-span-4">REASON / REMARKS</div>
+                    <div className="col-span-3 text-right">SHORTAGE (₹)</div>
                   </div>
+
+                  {/* Dynamic Rows */}
+                  {allMpdsShortageItems.length > 0 ? (
+                    allMpdsShortageItems.map((item, idx) => (
+                      <div key={`all-shortage-row-${idx}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-slate-50/50 dark:bg-slate-900/30 p-2 border rounded-md text-xs">
+                        <div className="sm:col-span-5 space-y-0.5">
+                          <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase block">DUTY STAFF</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                              {item.mpdName}
+                            </span>
+                            <span className="font-semibold text-foreground">{item.employeeName}</span>
+                          </div>
+                        </div>
+
+                        <div className="sm:col-span-4 space-y-0.5">
+                          <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase block">REASON / REMARKS</span>
+                          <span className="text-muted-foreground text-xs truncate block" title={item.shortageReason || ''}>
+                            {item.shortageReason || '-'}
+                          </span>
+                        </div>
+
+                        <div className="sm:col-span-3 text-right space-y-0.5">
+                          <span className="text-[10px] font-semibold sm:hidden text-muted-foreground uppercase block">SHORTAGE (₹)</span>
+                          <span className="font-mono font-bold text-amber-800 dark:text-amber-300 text-xs">
+                            {formatIndianCurrency(item.amount)}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-muted-foreground text-xs bg-slate-50/50 dark:bg-slate-900/30 border rounded-md">
+                      No shift employee shortage recorded
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -6097,7 +4807,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                   {(() => {
                     const allMpdsTestingTotal = allMpdsFuelSales.reduce((sum, item) => sum + ((item.testing || 0) * (item.rate || 0)), 0);
                     const grossAllMpdsMeterTotal = allMpdsMeterTotal;
-                    const netCashSalesRevenue = grossAllMpdsMeterTotal - allMpdsCreditTotal - allMpdsSettlementsTotal - allMpdsDepositsTotal + allMpdsPaidShortagesTotal + allMpdsRoundUpTotal;
+                    const netCashSalesRevenue = grossAllMpdsMeterTotal - allMpdsCreditTotal - allMpdsSettlementsTotal - allMpdsDepositsTotal - allMpdsShortagesTotal + allMpdsRoundUpTotal;
                     const internalUseExpensesTotal = allMpdsOwnUseTotal + allMpdsTestingTotal;
                     const rawAllMpdsFinalBalance = netCashSalesRevenue - internalUseExpensesTotal;
                     const allMpdsFinalBalance = Math.abs(rawAllMpdsFinalBalance) < 0.001 ? 0 : rawAllMpdsFinalBalance;
@@ -6144,6 +4854,12 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                                 <div className="flex justify-between items-center py-1.5 border-b">
                                   <span className="text-muted-foreground font-medium">Add: Recovered Paid Shortages:</span>
                                   <span className="font-bold text-emerald-600">+ {formatIndianCurrency(allMpdsPaidShortagesTotal)}</span>
+                                </div>
+                              )}
+                              {allMpdsShortagesTotal > 0 && (
+                                <div className="flex justify-between items-center py-1.5 border-b">
+                                  <span className="text-muted-foreground font-medium">Add: Employee Shortage:</span>
+                                  <span className="font-bold text-amber-600">+ {formatIndianCurrency(allMpdsShortagesTotal)}</span>
                                 </div>
                               )}
                               {allMpdsRoundUpTotal > 0 && (
@@ -6216,6 +4932,8 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
       <SummaryShortagesModal
         open={showSummaryShortageModal}
         onOpenChange={setShowSummaryShortageModal}
+        selectedDate={selectedDate}
+        selectedShift={selectedShift || activeShiftName}
       />
     </div>
   );

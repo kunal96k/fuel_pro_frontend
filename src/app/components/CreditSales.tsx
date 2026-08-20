@@ -74,7 +74,7 @@ import {
   Customer
 } from '../services/api';
 import { isRecordInShift } from '../utils/shiftUtils';
-import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch, isSameShift } from '../utils/mpdUtils';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -323,42 +323,10 @@ export function CreditSales({
           const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
           const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
           const shiftOk = (scopeMode === 'shift' && selectedShift)
-            ? isRecordInShift(r.shiftName, r.saleTime, selectedShift)
+            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.saleTime, selectedShift))
             : true;
           return mpdOk && shiftOk;
         });
-
-        // Fallback 1: If date/shift filter yields 0 records but res.content has MPD records, display MPD records
-        if (filtered.length === 0 && res.content.length > 0) {
-          filtered = res.content.filter(r => {
-            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-            return isStrictMpdMatch(mpdStr, resolvedMpdName);
-          });
-        }
-
-        // Fallback 2: If fetch with activeFromDate returned 0 records, fetch all records for this MPD
-        if (filtered.length === 0 && activeFromDate) {
-          try {
-            const fallbackRes = await fetchCreditSales({
-              page: 0,
-              size: 1000,
-              mpd: resolvedMpdName
-            });
-            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
-              filtered = fallbackRes.content.filter(r => {
-                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-                return isStrictMpdMatch(mpdStr, resolvedMpdName);
-              });
-            }
-          } catch (e) {
-            // ignore fallback error
-          }
-        }
-
-        // Fallback 3: If still 0, fall back to res.content
-        if (filtered.length === 0 && res.content.length > 0) {
-          filtered = res.content;
-        }
 
         displayContent = filtered;
       }
@@ -386,13 +354,10 @@ export function CreditSales({
           const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
           const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
           const shiftOk = (scopeMode === 'shift' && selectedShift)
-            ? isRecordInShift(r.shiftName, r.saleTime, selectedShift)
+            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.saleTime, selectedShift))
             : true;
           return mpdOk && shiftOk;
         });
-        if (statsFiltered.length === 0 && displayContent.length > 0) {
-          statsFiltered = displayContent;
-        }
         statsContent = statsFiltered;
       }
       setStatsRecords(statsContent);

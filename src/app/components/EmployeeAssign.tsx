@@ -141,8 +141,29 @@ export function EmployeeAssign() {
         setEmployees(empRes.content);
         setShifts(shiftRes.content);
         setMpds(mpdRes);
-        if (shiftRes.content.length > 0) {
-          setSelectedShiftId(shiftRes.content[0].id);
+        if (shiftRes.content && shiftRes.content.length > 0) {
+          const now = new Date();
+          const currentMinutes = now.getHours() * 60 + now.getMinutes();
+          const parseTimeToMinutes = (timeStr?: string): number => {
+            if (!timeStr) return 0;
+            const parts = timeStr.trim().split(':');
+            const h = parseInt(parts[0], 10) || 0;
+            const m = parseInt(parts[1], 10) || 0;
+            return h * 60 + m;
+          };
+
+          const activeShift = shiftRes.content.find((s: Shift) => {
+            if (!s.startTime || !s.endTime) return false;
+            const startMin = parseTimeToMinutes(s.startTime);
+            const endMin = parseTimeToMinutes(s.endTime);
+            if (startMin <= endMin) {
+              return currentMinutes >= startMin && currentMinutes < endMin;
+            } else {
+              return currentMinutes >= startMin || currentMinutes < endMin;
+            }
+          });
+
+          setSelectedShiftId(activeShift ? activeShift.id : shiftRes.content[0].id);
         }
       } catch {
         toast.error('Failed to load master data');

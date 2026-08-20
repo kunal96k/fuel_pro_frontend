@@ -1440,9 +1440,7 @@ export interface MpdReconciliationItem {
   employeeName?: string;
   shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
   shortageReason?: string;
-  status?: 'Paid' | 'Pending' | string;
   amount: number;
-  paidDate?: string;
 }
 
 export interface MpdReconciliationRecord {
@@ -1455,8 +1453,6 @@ export interface MpdReconciliationRecord {
   employeeName?: string;
   shortageAction?: 'Salary Deduction' | 'Station Expense' | 'Cash Recovery' | string;
   shortageReason?: string;
-  status?: 'Paid' | 'Pending' | string;
-  paidDate?: string;
   items?: MpdReconciliationItem[];
   roundUp?: number;
   createdAt?: string;
@@ -1483,7 +1479,6 @@ export async function fetchExistingMpdReconciliation(date: string, shiftName: st
 export async function fetchPaginatedReconciliationsApi(params: {
   search?: string;
   mpdName?: string;
-  status?: string;
   fromDate?: string;
   toDate?: string;
   page?: number;
@@ -1493,7 +1488,6 @@ export async function fetchPaginatedReconciliationsApi(params: {
   const query = new URLSearchParams();
   if (params.search) query.append('search', params.search);
   if (params.mpdName) query.append('mpdName', params.mpdName);
-  if (params.status) query.append('status', params.status);
   if (params.fromDate) query.append('fromDate', params.fromDate);
   if (params.toDate) query.append('toDate', params.toDate);
   query.append('page', String(params.page ?? 0));

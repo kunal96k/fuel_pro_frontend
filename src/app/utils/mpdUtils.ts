@@ -126,3 +126,47 @@ export function isSameShift(shift1?: string, shift2?: string): boolean {
 
   return false;
 }
+
+export function isTimeInShift(timeStr?: string, shift?: { startTime?: string; endTime?: string }): boolean {
+  if (!timeStr || !shift || !shift.startTime || !shift.endTime) return true;
+
+  const parseMin = (t: string) => {
+    const parts = t.trim().split(':');
+    return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+  };
+
+  const targetMin = parseMin(timeStr);
+  const startMin = parseMin(shift.startTime);
+  const endMin = parseMin(shift.endTime);
+
+  if (startMin <= endMin) {
+    return targetMin >= startMin && targetMin < endMin;
+  } else {
+    // Overnight shift (e.g. 22:00 to 06:00)
+    return targetMin >= startMin || targetMin < endMin;
+  }
+}
+
+export function isRecordInActiveShift(
+  r: any,
+  targetShiftName?: string,
+  masterShifts: Array<{ shiftName: string; startTime?: string; endTime?: string }> = []
+): boolean {
+  if (!targetShiftName) return true;
+
+  // 1. If explicit shift name / shift field is present on record:
+  if (r.shiftName || r.shift) {
+    return isSameShift(r.shiftName || r.shift, targetShiftName);
+  }
+
+  // 2. If time field is present (saleTime, usageTime, time, depositTime):
+  const recTime = r.saleTime || r.sale_time || r.usageTime || r.usage_time || r.time || r.depositTime || r.deposit_time;
+  if (recTime && masterShifts && masterShifts.length > 0) {
+    const matchedShift = masterShifts.find(s => isSameShift(s.shiftName, targetShiftName));
+    if (matchedShift) {
+      return isTimeInShift(recTime, matchedShift);
+    }
+  }
+
+  return false;
+}

@@ -68,7 +68,7 @@ import {
   fetchLatestOrDateRates,
 } from '../services/api';
 import { isRecordInShift } from '../utils/shiftUtils';
-import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch, isSameShift } from '../utils/mpdUtils';
 
 
 // ─────────────────────────────────────────────────────────────
@@ -341,37 +341,10 @@ export function OwnUsage({
           const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
           const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
           const shiftOk = (scopeMode === 'shift' && selectedShift)
-            ? isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift)
+            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift))
             : true;
           return mpdOk && shiftOk;
         });
-
-        // Fallback 1: If date/shift filter yields 0 records but res.content has MPD records, display MPD records
-        if (filtered.length === 0 && res.content.length > 0) {
-          filtered = res.content.filter(r => {
-            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-            return isStrictMpdMatch(mpdStr, resolvedMpdName);
-          });
-        }
-
-        // Fallback 2: If fetch with activeFromDate returned 0 records, fetch all records for this MPD
-        if (filtered.length === 0 && activeFromDate) {
-          try {
-            const fallbackRes = await fetchOwnUsages({
-              page: 0,
-              size: 1000,
-              mpd: resolvedMpdName
-            });
-            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
-              filtered = fallbackRes.content.filter(r => {
-                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-                return isStrictMpdMatch(mpdStr, resolvedMpdName);
-              });
-            }
-          } catch (e) {
-            // ignore fallback error
-          }
-        }
 
         filteredContent = filtered;
       }
@@ -405,12 +378,14 @@ export function OwnUsage({
 
       let statsFiltered = statsRes.content;
       if (isEmbedded && resolvedMpdName) {
-        statsFiltered = statsRes.content.filter(
-          r => isStrictMpdMatch(r.mpdName || (r as any).mpd || (r as any).mpdId, resolvedMpdName)
-        );
-        if (statsFiltered.length === 0 && filteredContent.length > 0) {
-          statsFiltered = filteredContent;
-        }
+        statsFiltered = statsRes.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift))
+            : true;
+          return mpdOk && shiftOk;
+        });
       }
       setStatsRecords(statsFiltered);
     } catch {

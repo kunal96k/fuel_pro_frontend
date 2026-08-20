@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -52,7 +52,7 @@ import {
 } from '../services/api';
 import { toast } from 'sonner';
 import { getActiveShiftNameFromMaster } from './FuelSaleForm';
-import { resolveMpdNameFromList, isStrictMpdMatch } from '../utils/mpdUtils';
+import { resolveMpdNameFromList, isStrictMpdMatch, isSameShift } from '../utils/mpdUtils';
 
 export interface CashCollectionProps {
   isEmbedded?: boolean;
@@ -189,6 +189,57 @@ export function CashCollection({
     }
   }, [prefilledMpdName, mpds]);
 
+  const isAssignmentForMpd = useCallback((d: any, targetMpdId: string) => {
+    if (!targetMpdId || !d) return false;
+    if (String(d.mpdId) === String(targetMpdId)) return true;
+
+    const selectedMpd = mpds.find(m => String(m.id) === String(targetMpdId) || m.mpdName.toLowerCase() === targetMpdId.toLowerCase());
+    if (selectedMpd) {
+      if (d.mpdName && isStrictMpdMatch(d.mpdName, selectedMpd.mpdName)) return true;
+      if (d.nozzle?.mpd?.name && isStrictMpdMatch(d.nozzle.mpd.name, selectedMpd.mpdName)) return true;
+      if (d.nozzle?.mpd?.id && String(d.nozzle.mpd.id) === String(selectedMpd.id)) return true;
+    }
+
+    if (d.mpdName && isStrictMpdMatch(d.mpdName, targetMpdId)) return true;
+    return false;
+  }, [mpds]);
+
+  const availableEmployees = useMemo(() => {
+    const activeMpdId = formRecord.mpdId || (resolvedMpdName ? mpds.find(m => isStrictMpdMatch(m.mpdName, resolvedMpdName))?.id : '');
+
+    let list = employees;
+    if (activeMpdId) {
+      const mpdDutyAssignments = dutyAssignments.filter(d => d.employeeId && isAssignmentForMpd(d, String(activeMpdId)));
+      const assignedEmpIds = new Set(mpdDutyAssignments.map(d => String(d.employeeId)));
+
+      if (assignedEmpIds.size > 0) {
+        list = employees.filter(e => assignedEmpIds.has(String(e.id)));
+      }
+    } else if (dutyAssignments.length > 0) {
+      const dutyEmpIds = new Set(dutyAssignments.map(d => String(d.employeeId)).filter(Boolean));
+      if (dutyEmpIds.size > 0) {
+        list = employees.filter(e => dutyEmpIds.has(String(e.id)));
+      }
+    }
+
+    const seen = new Set();
+    return list.filter(e => {
+      const id = String(e.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [employees, dutyAssignments, formRecord.mpdId, resolvedMpdName, mpds, isAssignmentForMpd]);
+
+  useEffect(() => {
+    if (formRecord.mpdId && availableEmployees.length > 0) {
+      const isCurrentEmpInList = availableEmployees.some(e => String(e.id) === String(formRecord.employeeId));
+      if (!isCurrentEmpInList && availableEmployees.length > 0) {
+        setFormRecord(prev => ({ ...prev, employeeId: String(availableEmployees[0].id) }));
+      }
+    }
+  }, [formRecord.mpdId, availableEmployees]);
+
   // Fetch paginated collections + stats
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -221,31 +272,14 @@ export function CashCollection({
 
       let filteredContent = recordsRes.content;
       if (isEmbedded && resolvedMpdName) {
-        let filtered = recordsRes.content.filter(
-          r => {
-            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-            return isStrictMpdMatch(mpdStr, resolvedMpdName);
-          }
-        );
-
-        // Fallback: If activeFromDate returned 0 records, fetch all records for this MPD
-        if (filtered.length === 0 && activeFromDate) {
-          try {
-            const fallbackRes = await fetchCashCollections({
-              page: 0,
-              size: 10000,
-              mpd: resolvedMpdName
-            });
-            if (fallbackRes && fallbackRes.content && fallbackRes.content.length > 0) {
-              filtered = fallbackRes.content.filter(r => {
-                const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-                return isStrictMpdMatch(mpdStr, resolvedMpdName);
-              });
-            }
-          } catch (e) {
-            // ignore fallback error
-          }
-        }
+        let filtered = recordsRes.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? (!r.shift || isSameShift(r.shift, selectedShift))
+            : true;
+          return mpdOk && shiftOk;
+        });
 
         filteredContent = filtered;
       }
@@ -288,15 +322,14 @@ export function CashCollection({
           sortBy,
           sortDir
         });
-        let allFiltered = allRecordsRes.content.filter(
-          r => {
-            const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-            return isStrictMpdMatch(mpdStr, resolvedMpdName);
-          }
-        );
-        if (allFiltered.length === 0 && filteredContent.length > 0) {
-          allFiltered = filteredContent;
-        }
+        let allFiltered = allRecordsRes.content.filter(r => {
+          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
+          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
+          const shiftOk = (scopeMode === 'shift' && selectedShift)
+            ? (!r.shift || isSameShift(r.shift, selectedShift))
+            : true;
+          return mpdOk && shiftOk;
+        });
         const totalAmount = allFiltered.reduce((sum, r) => sum + (r.depositAmount || 0), 0);
         const verifiedCount = allFiltered.filter(r => r.status === 'Verified').length;
         const totalEntries = allFiltered.length;
@@ -1401,25 +1434,14 @@ export function CashCollection({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="NONE">-- Select Employee --</SelectItem>
-                          {employees
-                            .filter(emp => {
-                              // If duty roster has assignments for this shift, prioritize assigned employees
-                              if (dutyAssignments.length === 0) return true;
-                              if (formRecord.mpdId) {
-                                // Highlight/keep employee assigned to this MPD or all duty attendants
-                                return true;
-                              }
-                              return true;
-                            })
-                            .map(emp => {
-                              const isAttendantForMpd = dutyAssignments.some(d => d.employeeId === emp.id && d.mpdId === formRecord.mpdId);
-                              const isOnDutyToday = dutyAssignments.some(d => d.employeeId === emp.id);
-                              return (
-                                <SelectItem key={emp.id} value={emp.id}>
-                                  {emp.name} ({emp.employeeCode}) {isAttendantForMpd ? '• (Assigned Attendant)' : isOnDutyToday ? '• (On Duty)' : ''}
-                                </SelectItem>
-                              );
-                            })}
+                          {availableEmployees.map(emp => {
+                            const isAttendantForMpd = dutyAssignments.some(d => String(d.employeeId) === String(emp.id) && isAssignmentForMpd(d, formRecord.mpdId));
+                            return (
+                              <SelectItem key={emp.id} value={emp.id}>
+                                {emp.name} ({emp.employeeCode || emp.id}) {isAttendantForMpd ? '• (Assigned Attendant)' : ''}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     )}
