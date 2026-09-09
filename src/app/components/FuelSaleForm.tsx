@@ -106,13 +106,21 @@ const formatIndianCurrency = (amount: number) => {
 export function getActiveShiftNameFromMaster(shifts: ShiftMaster[], now: Date = new Date()): string {
   if (!shifts || shifts.length === 0) return '';
 
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const istTime24 = now.toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata'
+  });
+
+  const parts = istTime24.split(':');
+  const currentMinutes = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
 
   const parseTimeToMinutes = (timeStr?: string): number => {
     if (!timeStr) return 0;
-    const parts = timeStr.trim().split(':');
-    const h = parseInt(parts[0], 10) || 0;
-    const m = parseInt(parts[1], 10) || 0;
+    const p = timeStr.trim().split(':');
+    const h = parseInt(p[0], 10) || 0;
+    const m = parseInt(p[1], 10) || 0;
     return h * 60 + m;
   };
 
@@ -130,6 +138,15 @@ export function getActiveShiftNameFromMaster(shifts: ShiftMaster[], now: Date = 
         return shift.shiftName;
       }
     }
+  }
+
+  const istHour = parseInt(parts[0], 10) || 0;
+  if (istHour >= 6 && istHour < 18) {
+    const dayShift = shifts.find(s => s.shiftType === 'Morning' || s.shiftName.toLowerCase().includes('day') || s.shiftName.toLowerCase().includes('morning'));
+    if (dayShift) return dayShift.shiftName;
+  } else {
+    const nightShift = shifts.find(s => s.shiftType === 'Night' || s.shiftName.toLowerCase().includes('night'));
+    if (nightShift) return nightShift.shiftName;
   }
 
   return shifts[0]?.shiftName || '';
@@ -166,8 +183,7 @@ function MeterReadingTable({
   onFuelSalesSummaryChange?: (summary: Array<{ product: string; units: number; rate: number; amount: number }>) => void;
   onShiftChange?: (shiftName: string) => void;
 }) {
-  const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
-  const [selectedShift, setSelectedShift] = React.useState(selectedShiftProp || '');
+  const selectedShift = selectedShiftProp || '';
   const [savingReadings, setSavingReadings] = React.useState(false);
   const [showHistoryModal, setShowHistoryModal] = React.useState(false);
   const [dynamicOpeningReadings, setDynamicOpeningReadings] = React.useState<{ [nozzleId: string]: number }>({});
@@ -183,57 +199,6 @@ function MeterReadingTable({
       totalAmount: number;
     };
   }>({});
-
-  React.useEffect(() => {
-    if (selectedShiftProp) {
-      setSelectedShift(selectedShiftProp);
-    }
-  }, [selectedShiftProp]);
-
-  React.useEffect(() => {
-    const loadMasterShifts = async () => {
-      try {
-        const shifts = await fetchShiftsAll();
-        if (shifts && shifts.length > 0) {
-          setMasterShifts(shifts);
-          if (!selectedShiftProp) {
-            const activeShift = getActiveShiftNameFromMaster(shifts);
-            setSelectedShift(activeShift);
-            if (onShiftChange) onShiftChange(activeShift);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch master shifts:', err);
-      }
-    };
-    loadMasterShifts();
-  }, [selectedShiftProp]);
-
-  const activeShiftNames = React.useMemo(() => {
-    if (masterShifts.length > 0) {
-      return masterShifts.map(s => s.shiftName);
-    }
-    return ['Shift 1 (Morning)', 'Shift 2 (Afternoon)', 'Shift 3 (Night)'];
-  }, [masterShifts]);
-
-  const prevActiveRef = React.useRef<string>('');
-  React.useEffect(() => {
-    if (activeShiftNames.length > 0 && !selectedShiftProp) {
-      const activeShift = getActiveShiftNameFromMaster(masterShifts);
-      if (activeShift && (!selectedShift || activeShift !== prevActiveRef.current)) {
-        prevActiveRef.current = activeShift;
-        const matched = activeShiftNames.includes(activeShift) ? activeShift : activeShiftNames[0];
-        setSelectedShift(matched);
-        if (onShiftChange) onShiftChange(matched);
-      }
-    }
-  }, [activeShiftNames, masterShifts, selectedShiftProp]);
-
-  React.useEffect(() => {
-    if (selectedShift && onShiftChange) {
-      onShiftChange(selectedShift);
-    }
-  }, [selectedShift]);
 
   const [savedOpeningReadings, setSavedOpeningReadings] = React.useState<{ [shift: string]: { [nozzleId: string]: number } }>({});
 
@@ -4179,11 +4144,20 @@ function SummaryShortagesModal({
   );
 }
 
+const getISTDateString = (dateObj: Date = new Date()) => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(dateObj);
+};
+
 export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) {
   const [mpds, setMpds] = React.useState<MPD[]>([]);
   const [masterShifts, setMasterShifts] = React.useState<ShiftMaster[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [selectedDate, setSelectedDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = React.useState(() => getISTDateString());
   const [rateMaster, setRateMaster] = React.useState<Record<string, number>>({});
   const [selectedShift, setSelectedShift] = React.useState('');
   const [now, setNow] = React.useState(() => new Date());
@@ -4196,7 +4170,10 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
   }, []);
 
   const activeShiftName = React.useMemo(() => {
-    return getActiveShiftNameFromMaster(masterShifts, now);
+    return getActiveShiftNameFromMaster(masterShifts && masterShifts.length > 0 ? masterShifts : [
+      { id: '1', shiftName: 'Day', startTime: '06:00', endTime: '18:00', shiftType: 'Morning', description: '' },
+      { id: '2', shiftName: 'Night', startTime: '18:00', endTime: '06:00', shiftType: 'Night', description: '' },
+    ], now);
   }, [masterShifts, now]);
 
   React.useEffect(() => {
@@ -4543,18 +4520,17 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
       return masterShifts;
     }
     return [
-      { id: '1', shiftName: 'Shift 1 (Morning)', startTime: '06:00', endTime: '14:00', shiftType: 'Morning', description: '' },
-      { id: '2', shiftName: 'Shift 2 (Afternoon)', startTime: '14:00', endTime: '22:00', shiftType: 'Afternoon', description: '' },
-      { id: '3', shiftName: 'Shift 3 (Night)', startTime: '22:00', endTime: '06:00', shiftType: 'Night', description: '' },
+      { id: '1', shiftName: 'Day', startTime: '06:00', endTime: '18:00', shiftType: 'Morning', description: '' },
+      { id: '2', shiftName: 'Night', startTime: '18:00', endTime: '06:00', shiftType: 'Night', description: '' },
     ];
   }, [masterShifts]);
 
   const effectiveShift = React.useMemo(() => {
     if (selectedShift) return selectedShift;
-    return activeShiftName || (shiftOptions[0]?.shiftName ?? 'Shift 1 (Morning)');
+    return activeShiftName || (shiftOptions[0]?.shiftName ?? '');
   }, [selectedShift, activeShiftName, shiftOptions]);
 
-  const todayDate = React.useMemo(() => new Date().toISOString().slice(0, 10), [now]);
+  const todayDate = React.useMemo(() => getISTDateString(now), [now]);
 
   const isHistorical = React.useMemo(() => {
     if (!selectedDate) return false;
@@ -4587,7 +4563,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
   const handleManualRefresh = async () => {
     try {
       setRefreshing(true);
-      const currentDate = new Date().toISOString().slice(0, 10);
+      const currentDate = getISTDateString();
       setSelectedDate(currentDate);
       setSelectedShift('');
       setNow(new Date());
@@ -4653,7 +4629,7 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
               <Clock className="w-4 h-4 text-primary shrink-0" />
               <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Active Shift:</span>
               <span className="text-xs font-semibold text-foreground">
-                {effectiveShift.replace(/\s*\([^)]*\)/, '') || effectiveShift}
+                {effectiveShift}
               </span>
             </SelectTrigger>
             <SelectContent>
