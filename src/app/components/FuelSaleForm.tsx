@@ -299,39 +299,23 @@ function MeterReadingTable({
 
   const [shiftReadings, setShiftReadings] = React.useState<{ [shift: string]: { [key: number]: string } }>({});
 
-  const getOpeningForNozzle = React.useCallback((srNo: number, baseOpening: number, shift: string) => {
-    const shiftIndex = activeShiftNames.indexOf(shift);
-    if (shiftIndex <= 0) {
-      return baseOpening;
-    }
-    for (let i = shiftIndex - 1; i >= 0; i--) {
-      const prevShiftName = activeShiftNames[i];
-      const prevClose = parseFloat(shiftReadings[prevShiftName]?.[srNo] || '');
-      if (!isNaN(prevClose) && prevClose > 0) {
-        return prevClose;
-      }
-    }
-    return baseOpening;
-  }, [shiftReadings, activeShiftNames]);
-
   const nozzleData = React.useMemo(() => {
     if (mpd && mpd.nozzles && mpd.nozzles.length > 0) {
       return mpd.nozzles.map((n: any, index: number) => {
         const srNo = index + 1;
         const savedOpening = savedOpeningReadings[selectedShift]?.[n.id];
-        const inStatePrevClosing = getOpeningForNozzle(srNo, 0, selectedShift);
         const backendLatest = dynamicOpeningReadings[n.id];
         const mpdMasterInitial = (n.initialOpeningReading != null && !isNaN(n.initialOpeningReading)) ? n.initialOpeningReading : null;
         const fallbackDefault = getDefaultOpeningReading(n.nozzleName, n.fuelType, index);
 
-        const openingReading = (savedOpening ?? (inStatePrevClosing > 0 ? inStatePrevClosing : (backendLatest ?? (mpdMasterInitial ?? fallbackDefault))));
+        const openingReading = (savedOpening ?? (backendLatest ?? (mpdMasterInitial ?? fallbackDefault)));
 
         return {
           srNo,
           id: n.id,
           nozzleNumber: n.nozzleName,
           fuelType: n.fuelType || 'Petrol',
-          openingReading,
+          openingReading: Number(openingReading) || 0,
           testing: 0.00
         };
       });
@@ -342,7 +326,7 @@ function MeterReadingTable({
       { srNo: 3, id: 'n3', nozzleNumber: 'N-003', fuelType: 'Petrol', openingReading: 9800.75, testing: 0.00 },
       { srNo: 4, id: 'n4', nozzleNumber: 'N-004', fuelType: 'Diesel', openingReading: 22300.00, testing: 0.00 },
     ];
-  }, [mpd, dynamicOpeningReadings, savedOpeningReadings, selectedShift, getOpeningForNozzle]);
+  }, [mpd, dynamicOpeningReadings, savedOpeningReadings, selectedShift]);
 
   const loadReadingsForShift = React.useCallback(async (shiftName: string) => {
     if (!mpd || !mpd.nozzles || !shiftName) return;
