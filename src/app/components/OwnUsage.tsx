@@ -11,6 +11,8 @@ import {
   Truck,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Eye,
   Edit,
   Pencil,
@@ -66,6 +68,8 @@ import {
   fetchEmployees,
   Employee,
   fetchLatestOrDateRates,
+  fetchShiftsAll,
+  ShiftMaster
 } from '../services/api';
 import { isRecordInShift } from '../utils/shiftUtils';
 import { resolveMpdNameFromList, isStrictMpdMatch, isSameShift } from '../utils/mpdUtils';
@@ -176,6 +180,7 @@ export function OwnUsage({
   const [products, setProducts] = useState<Product[]>([]);
   const [mpds, setMpds] = useState<MPD[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [masterShifts, setMasterShifts] = useState<ShiftMaster[]>([]);
   const [loadingMaster, setLoadingMaster] = useState(false);
 
   const [records, setRecords] = useState<OwnUsageRecord[]>([]);
@@ -223,15 +228,22 @@ export function OwnUsage({
 
   // Filter vehicle suggestions from pre-fetched vehicles master data
   useEffect(() => {
-    if (!vehicleSearch.trim() || modalMode === 'view') {
+    if (modalMode === 'view') {
       setVehicleSuggestions([]);
+      return;
+    }
+    if (!vehicleSearch.trim()) {
+      setVehicleSuggestions(vehicles);
       return;
     }
     const query = vehicleSearch.trim().toLowerCase();
     const filtered = vehicles.filter(v =>
-      v.vehicleNumber.toLowerCase().includes(query)
+      (v.vehicleNumber && v.vehicleNumber.toLowerCase().includes(query)) ||
+      (v.vehicleType && v.vehicleType.toLowerCase().includes(query)) ||
+      (v.fuelType && v.fuelType.toLowerCase().includes(query)) ||
+      (v.ownerName && v.ownerName.toLowerCase().includes(query))
     );
-    setVehicleSuggestions(filtered.slice(0, 10));
+    setVehicleSuggestions(filtered);
   }, [vehicleSearch, vehicles, modalMode]);
 
   // Compute inline warning if search vehicle doesn't match any in master
@@ -243,8 +255,8 @@ export function OwnUsage({
 
   const availableNozzles: Nozzle[] = (() => {
     if (!form.mpdId) return [];
-    const mpd = mpds.find(m => m.id === form.mpdId);
-    return mpd ? mpd.nozzles : [];
+    const mpd = mpds.find(m => String(m.id) === String(form.mpdId) || m.mpdName === form.mpdId);
+    return mpd ? (mpd.nozzles || []) : [];
   })();
 
   // ── Derived: filtered products by category, MPD & nozzle ──
@@ -253,10 +265,15 @@ export function OwnUsage({
     let list = products.filter(p => p.category === form.productCategory);
 
     if (form.productCategory === 'Fuel' && form.mpdId) {
-      const selectedNozzle = availableNozzles.find(nz => nz.id === form.nozzleId || nz.nozzleName === form.nozzleName);
+      const selectedNozzle = availableNozzles.find(nz => String(nz.id) === String(form.nozzleId) || nz.nozzleName === form.nozzleName || String(nz.id) === String(form.nozzleName));
 
       if (selectedNozzle) {
-        const fuelName = selectedNozzle.fuelType || (selectedNozzle as any).connectedTank || '';
+        const directProduct = (selectedNozzle as any).tank?.product;
+        if (directProduct) {
+          const matched = list.filter(p => String(p.id) === String(directProduct.id) || p.name.toLowerCase() === (directProduct.name || '').toLowerCase());
+          if (matched.length > 0) return matched;
+        }
+        const fuelName = selectedNozzle.fuelType || (selectedNozzle as any).tank?.tankName || (selectedNozzle as any).tank?.fuelType || (selectedNozzle as any).connectedTank || '';
         if (fuelName) {
           const normFuel = fuelName.toLowerCase().trim();
           const matched = list.filter(p => {
@@ -269,7 +286,8 @@ export function OwnUsage({
 
       if (availableNozzles.length > 0) {
         const mpdFuelNames = availableNozzles
-          .map(nz => (nz.fuelType || (nz as any).connectedTank || '').toLowerCase().trim())
+          .map(nz => nz.fuelType || (nz as any).tank?.product?.name || (nz as any).tank?.fuelType || (nz as any).connectedTank || '')
+          .map(f => f.toLowerCase().trim())
           .filter(Boolean);
 
         if (mpdFuelNames.length > 0) {
@@ -341,7 +359,7 @@ export function OwnUsage({
           const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
           const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
           const shiftOk = (scopeMode === 'shift' && selectedShift)
-            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift))
+            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift, masterShifts))
             : true;
           return mpdOk && shiftOk;
         });
@@ -351,49 +369,38 @@ export function OwnUsage({
 
       if (isEmbedded) {
         const total = filteredContent.length;
-        const totalPagesCount = Math.ceil(total / pageSize) || 1;
+        const totalPagesCount = Math.max(1, Math.ceil(total / pageSize));
         const start = currentPage * pageSize;
         const paginatedContent = filteredContent.slice(start, start + pageSize);
 
         setRecords(paginatedContent);
         setTotalPages(totalPagesCount);
         setTotalElements(total);
+        setStatsRecords(filteredContent);
       } else {
         setRecords(filteredContent);
         setTotalPages(res.totalPages);
         setTotalElements(res.totalElements);
-      }
 
-      // Fetch stats globally or scoped based on scopeMode
-      const statsRes = await fetchOwnUsages({
-        page: 0,
-        size: 100000,
-        search: searchTerm || undefined,
-        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        purpose: purposeFilter !== 'ALL' ? purposeFilter : undefined,
-        fromDate: activeFromDate || undefined,
-        toDate: activeToDate || undefined,
-        sortBy, sortDir
-      });
-
-      let statsFiltered = statsRes.content;
-      if (isEmbedded && resolvedMpdName) {
-        statsFiltered = statsRes.content.filter(r => {
-          const mpdStr = r.mpdName || (r as any).mpd || (r as any).mpdId || (r as any).dispenser || '';
-          const mpdOk = isStrictMpdMatch(mpdStr, resolvedMpdName);
-          const shiftOk = (scopeMode === 'shift' && selectedShift)
-            ? (r.shiftName ? isSameShift(r.shiftName, selectedShift) : isRecordInShift(r.shiftName, r.usageTime || (r as any).time, selectedShift))
-            : true;
-          return mpdOk && shiftOk;
+        // Fetch stats globally in standalone mode
+        const statsRes = await fetchOwnUsages({
+          page: 0,
+          size: 100000,
+          search: searchTerm || undefined,
+          category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+          purpose: purposeFilter !== 'ALL' ? purposeFilter : undefined,
+          fromDate: activeFromDate || undefined,
+          toDate: activeToDate || undefined,
+          sortBy, sortDir
         });
+        setStatsRecords(statsRes.content);
       }
-      setStatsRecords(statsFiltered);
     } catch {
       toast.error('Failed to load own usage records.');
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate, selectedShift]);
+  }, [currentPage, pageSize, searchTerm, categoryFilter, purposeFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate, selectedShift, masterShifts]);
 
   useEffect(() => {
     if (isEmbedded && resolvedMpdName) {
@@ -415,16 +422,18 @@ export function OwnUsage({
     const load = async () => {
       setLoadingMaster(true);
       try {
-        const [vRes, pRes, mRes, eRes] = await Promise.all([
+        const [vRes, pRes, mRes, eRes, sRes] = await Promise.all([
           fetchVehicles({ size: 1000, status: 'Active' }),
           fetchProducts({ size: 1000 }),
           fetchMpdsAll(),
-          fetchEmployees({ size: 1000, status: 'Active' })
+          fetchEmployees({ size: 1000, status: 'Active' }),
+          fetchShiftsAll().catch(() => [])
         ]);
         setVehicles(vRes.content);
         setProducts(pRes.content);
         setMpds(mRes);
         setEmployees(eRes.content);
+        setMasterShifts(sRes || []);
       } catch {
         toast.error('Failed to load master data (vehicles, products, MPDs, employees).');
       } finally {
@@ -435,39 +444,87 @@ export function OwnUsage({
   }, []);
 
   // ── Dynamic Rate Lookup ──
-  const loadDynamicRate = useCallback(async (productId: string, dateStr: string) => {
-    if (!productId || !dateStr) return;
-    const p = products.find(prod => String(prod.id) === String(productId) || prod.name === productId);
-    if (!p) return;
+  const loadDynamicRate = useCallback(async (productId: string, dateStr?: string) => {
+    if (!productId) return;
     try {
-      const ratesMap = await fetchLatestOrDateRates(dateStr);
+      const activeDate = dateStr || form.date || getISTDateString();
+      let cleanDate = activeDate;
+      if (/^\d{2}-\d{2}-\d{4}$/.test(activeDate)) {
+        const [d, m, y] = activeDate.split('-');
+        cleanDate = `${y}-${m}-${d}`;
+      }
+
+      const ratesMap = await fetchLatestOrDateRates(cleanDate).catch(() => ({}));
+      const p = products.find(prod => String(prod.id) === String(productId) || prod.name.toLowerCase() === String(productId).toLowerCase());
+
       let dynamicRate: number | undefined = undefined;
-      if (ratesMap[p.id] !== undefined && Number(ratesMap[p.id]) > 0) dynamicRate = Number(ratesMap[p.id]);
-      else if (ratesMap[String(p.id)] !== undefined && Number(ratesMap[String(p.id)]) > 0) dynamicRate = Number(ratesMap[String(p.id)]);
-      else if (ratesMap[p.name] !== undefined && Number(ratesMap[p.name]) > 0) dynamicRate = Number(ratesMap[p.name]);
-      else if (ratesMap[p.name.toLowerCase()] !== undefined && Number(ratesMap[p.name.toLowerCase()]) > 0) dynamicRate = Number(ratesMap[p.name.toLowerCase()]);
-      else if ((p as any).price > 0) dynamicRate = Number((p as any).price);
+      if (ratesMap[productId] !== undefined && Number(ratesMap[productId]) > 0) dynamicRate = Number(ratesMap[productId]);
+      else if (ratesMap[String(productId)] !== undefined && Number(ratesMap[String(productId)]) > 0) dynamicRate = Number(ratesMap[String(productId)]);
+      else if (p) {
+        if (ratesMap[p.id] !== undefined && Number(ratesMap[p.id]) > 0) dynamicRate = Number(ratesMap[p.id]);
+        else if (ratesMap[String(p.id)] !== undefined && Number(ratesMap[String(p.id)]) > 0) dynamicRate = Number(ratesMap[String(p.id)]);
+        else if (ratesMap[p.name] !== undefined && Number(ratesMap[p.name]) > 0) dynamicRate = Number(ratesMap[p.name]);
+        else if (ratesMap[p.name.toLowerCase()] !== undefined && Number(ratesMap[p.name.toLowerCase()]) > 0) dynamicRate = Number(ratesMap[p.name.toLowerCase()]);
+        else if ((p as any).price > 0) dynamicRate = Number((p as any).price);
+      }
+
+      // Safe default rate fallbacks
+      if (dynamicRate === undefined || dynamicRate <= 0) {
+        const pName = (p?.name || String(productId) || '').toLowerCase();
+        if (pName.includes('diesel') || pName.includes('hsd')) dynamicRate = 91.17;
+        else if (pName.includes('petrol') || pName.includes('speed') || pName.includes('power') || pName.includes('ms') || pName.includes('e20')) dynamicRate = 104.66;
+        else if (pName.includes('lpg') || pName.includes('cng')) dynamicRate = 65.00;
+      }
 
       if (dynamicRate !== undefined && dynamicRate > 0) {
-        setForm(prev => ({ ...prev, rate: String(dynamicRate) }));
+        setForm(prev => {
+          const rateStr = String(dynamicRate);
+          let qtyVal = prev.quantity;
+          let totalVal = prev.totalAmount;
+          if (qtyVal) {
+            totalVal = (parseFloat(qtyVal) * dynamicRate!).toFixed(2);
+          } else if (totalVal) {
+            qtyVal = (parseFloat(totalVal) / dynamicRate!).toFixed(2);
+          }
+          return { ...prev, rate: rateStr, quantity: qtyVal, totalAmount: totalVal };
+        });
       }
     } catch {
-      if ((p as any).price > 0) {
-        setForm(prev => ({ ...prev, rate: String((p as any).price) }));
+      // ignore
+    }
+  }, [products, form.date]);
+
+  // ── Auto-calculate logic (Two-way calculation) ──
+  const handleQuantityChange = (val: string) => {
+    const qty = parseFloat(val);
+    const rate = parseFloat(form.rate);
+    const total = (!isNaN(qty) && qty > 0 && !isNaN(rate) && rate > 0) ? (qty * rate).toFixed(2) : '';
+    setForm(prev => ({ ...prev, quantity: val, totalAmount: total }));
+  };
+
+  const handleTotalAmountChange = (val: string) => {
+    const rawVal = val.replace(/,/g, '');
+    const total = parseFloat(rawVal);
+    const rate = parseFloat(form.rate);
+    const qty = (!isNaN(total) && total > 0 && !isNaN(rate) && rate > 0) ? (total / rate).toFixed(2) : '';
+    setForm(prev => ({ ...prev, totalAmount: rawVal, quantity: qty }));
+  };
+
+  const handleRateChange = (val: string) => {
+    const rate = parseFloat(val);
+    const qty = parseFloat(form.quantity);
+    const total = parseFloat(form.totalAmount);
+    let newQty = form.quantity;
+    let newTotal = form.totalAmount;
+    if (!isNaN(rate) && rate > 0) {
+      if (!isNaN(qty) && qty > 0) {
+        newTotal = (qty * rate).toFixed(2);
+      } else if (!isNaN(total) && total > 0) {
+        newQty = (total / rate).toFixed(2);
       }
     }
-  }, [products]);
-
-  // ── Auto-calculate total ──
-  useEffect(() => {
-    const q = parseFloat(form.quantity) || 0;
-    const r = parseFloat(form.rate) || 0;
-    if (q > 0 && r > 0) {
-      setForm(prev => ({ ...prev, totalAmount: (q * r).toFixed(2) }));
-    } else {
-      setForm(prev => ({ ...prev, totalAmount: '' }));
-    }
-  }, [form.quantity, form.rate]);
+    setForm(prev => ({ ...prev, rate: val, quantity: newQty, totalAmount: newTotal }));
+  };
 
   // ── Field handlers ──
   const handleVehicleSelect = (vehicle: Vehicle) => {
@@ -483,19 +540,21 @@ export function OwnUsage({
 
     // Auto-select product based on vehicle fuelType if it matches any fuel product name
     if (vehicle.fuelType) {
+      const normVehFuel = vehicle.fuelType.toLowerCase();
       const matchedProd = products.find(p =>
         p.category === 'Fuel' &&
-        p.name.toLowerCase().includes(vehicle.fuelType.toLowerCase())
+        p.name && p.name.toLowerCase().includes(normVehFuel)
       );
       if (matchedProd) {
+        const prodId = String(matchedProd.id);
         setForm(prev => ({
           ...prev,
-          productId: matchedProd.id,
+          productId: prodId,
           productName: matchedProd.name,
           productCategory: 'Fuel',
           productUnit: matchedProd.unit
         }));
-        loadDynamicRate(matchedProd.id, form.date);
+        loadDynamicRate(prodId, form.date);
       }
     }
   };
@@ -512,45 +571,50 @@ export function OwnUsage({
   };
 
   const handleProductChange = (productId: string) => {
-    const p = products.find(p => p.id === productId);
+    const p = products.find(prod => String(prod.id) === String(productId) || prod.name === productId);
     if (!p) return;
-    setForm(prev => ({ ...prev, productId, productName: p.name, productCategory: p.category as any, productUnit: p.unit }));
-    loadDynamicRate(productId, form.date);
+    const prodId = String(p.id);
+    setForm(prev => ({ ...prev, productId: prodId, productName: p.name, productCategory: p.category as any, productUnit: p.unit }));
+    loadDynamicRate(prodId, form.date);
   };
 
   const autoSelectProductForNozzle = useCallback((nozzleObj: Nozzle) => {
     if (!nozzleObj) return;
-    const fuelName = nozzleObj.fuelType || (nozzleObj as any).connectedTank || '';
-    if (!fuelName) return;
+    const directProduct = (nozzleObj as any).tank?.product;
+    const fuelName = nozzleObj.fuelType || directProduct?.name || (nozzleObj as any).tank?.tankName || (nozzleObj as any).tank?.fuelType || (nozzleObj as any).connectedTank || '';
 
-    const normFuel = fuelName.toLowerCase().trim();
-    const matchedProduct = products.find(p => {
-      if (p.category !== 'Fuel') return false;
-      const normP = p.name.toLowerCase().trim();
-      return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
-    });
+    const normFuel = (fuelName || '').toLowerCase().trim();
+    let matchedProduct = directProduct;
+    if (!matchedProduct && normFuel) {
+      matchedProduct = products.find(p => {
+        if (p.category !== 'Fuel') return false;
+        const normP = p.name.toLowerCase().trim();
+        return normP === normFuel || normP.includes(normFuel) || normFuel.includes(normP);
+      });
+    }
 
     if (matchedProduct) {
+      const prodId = String(matchedProduct.id);
       setForm(prev => ({
         ...prev,
         productCategory: 'Fuel',
-        productId: matchedProduct.id,
+        productId: prodId,
         productName: matchedProduct.name,
         productUnit: matchedProduct.unit
       }));
-      loadDynamicRate(matchedProduct.id, form.date);
+      loadDynamicRate(prodId, form.date);
     }
   }, [products, form.date, loadDynamicRate]);
 
   const handleMpdChange = (mpdId: string) => {
-    const m = mpds.find(m => m.id === mpdId);
+    const m = mpds.find(mpd => String(mpd.id) === String(mpdId) || mpd.mpdName === mpdId);
     const firstNozzle = m?.nozzles && m.nozzles.length > 0 ? m.nozzles[0] : null;
 
     setForm(prev => ({
       ...prev,
-      mpdId,
+      mpdId: String(mpdId),
       mpdName: m?.mpdName ?? '',
-      nozzleId: firstNozzle ? (firstNozzle.id || '') : '',
+      nozzleId: firstNozzle ? String(firstNozzle.id || firstNozzle.nozzleName) : '',
       nozzleName: firstNozzle ? firstNozzle.nozzleName : ''
     }));
 
@@ -560,8 +624,8 @@ export function OwnUsage({
   };
 
   const handleNozzleChange = (nozzleId: string) => {
-    const nz = availableNozzles.find(n => n.id === nozzleId || n.nozzleName === nozzleId);
-    setForm(prev => ({ ...prev, nozzleId, nozzleName: nz?.nozzleName ?? '' }));
+    const nz = availableNozzles.find(n => String(n.id) === String(nozzleId) || n.nozzleName === nozzleId);
+    setForm(prev => ({ ...prev, nozzleId: String(nozzleId), nozzleName: nz?.nozzleName ?? '' }));
     if (nz) {
       autoSelectProductForNozzle(nz);
     }
@@ -570,10 +634,10 @@ export function OwnUsage({
   // ── Modal openers ──
   const handleAddNew = async () => {
     setModalMode('add'); setActiveRecordId(null);
-    const today = getISTDateString();
+    const defaultDate = selectedDate || getISTDateString();
     let nextSlip = '';
     try {
-      nextSlip = await fetchNextOwnUsageSlipApi(today);
+      nextSlip = await fetchNextOwnUsageSlipApi(defaultDate);
     } catch {
       nextSlip = 'OWN-TEMP';
     }
@@ -581,9 +645,9 @@ export function OwnUsage({
     let defaultMpdId = '';
     let defaultMpdName = '';
     if (resolvedMpdName && mpds.length > 0) {
-      const found = mpds.find(m => m.mpdName.toLowerCase() === resolvedMpdName.toLowerCase());
+      const found = mpds.find(m => isStrictMpdMatch(m.mpdName, resolvedMpdName));
       if (found) {
-        defaultMpdId = found.id;
+        defaultMpdId = String(found.id);
         defaultMpdName = found.mpdName;
       }
     }
@@ -591,7 +655,7 @@ export function OwnUsage({
     setForm({
       ...INIT_FORM,
       slipNo: nextSlip,
-      date: today,
+      date: defaultDate,
       usageTime: getISTTimeString(),
       mpdId: defaultMpdId,
       mpdName: defaultMpdName
@@ -808,9 +872,78 @@ export function OwnUsage({
             <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/60">
               <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Vehicle &amp; Product Details</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-1">
-                  <Label htmlFor="ou-vehicle" className="text-xs font-medium">Vehicle / Equipment (Optional)</Label>
-                  <Input id="ou-vehicle" disabled={isView} value={form.vehicleNo} onChange={e => setForm(prev => ({ ...prev, vehicleNo: e.target.value.toUpperCase() }))} tabIndex={4} className="h-9 text-xs font-mono" placeholder="e.g. MH-01-AB-1234 or Generator" />
+                <div ref={vehicleRef} className="space-y-1 relative">
+                  <Label htmlFor="ou-vehicle" className="text-xs font-medium flex items-center justify-between">
+                    <span>Vehicle / Equipment <span className="text-red-500 font-bold">*</span></span>
+                    {vehicles.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground font-normal">
+                        {vehicles.length} in Master
+                      </span>
+                    )}
+                  </Label>
+                  {isView ? (
+                    <Input
+                      id="ou-vehicle"
+                      disabled={isView}
+                      value={formatVehicleNumber(form.vehicleNumber) || form.vehicleNumber}
+                      tabIndex={4}
+                      className="h-9 text-xs font-mono bg-muted"
+                    />
+                  ) : (
+                    <div className="relative">
+                      <Input
+                        id="ou-vehicle"
+                        placeholder="Search / select vehicle..."
+                        value={vehicleSearch}
+                        onChange={e => {
+                          const formatted = formatVehicleNumber(e.target.value);
+                          handleVehicleSearchChange(formatted);
+                          setShowVehicleDropdown(true);
+                        }}
+                        onFocus={() => setShowVehicleDropdown(true)}
+                        disabled={loadingMaster}
+                        tabIndex={4}
+                        className="h-9 text-xs font-mono pr-8 bg-background"
+                        autoComplete="off"
+                        required
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowVehicleDropdown(prev => !prev)}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      {showVehicleDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-xl max-h-56 overflow-y-auto bg-white dark:bg-slate-900 divide-y divide-border/40">
+                          {vehicleSuggestions.length > 0 ? (
+                            vehicleSuggestions.map((v, i) => (
+                              <div
+                                key={v.id || i}
+                                className="px-3 py-2 hover:bg-muted/80 cursor-pointer text-xs transition-colors flex items-center justify-between"
+                                onClick={() => handleVehicleSelect(v)}
+                              >
+                                <div>
+                                  <span className="font-semibold font-mono text-foreground">{v.vehicleNumber}</span>
+                                  <p className="text-[10px] text-muted-foreground">{v.vehicleType} {v.ownerName ? `· ${v.ownerName}` : ''}</p>
+                                </div>
+                                {v.fuelType && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200">
+                                    {v.fuelType}
+                                  </Badge>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="p-3 text-xs text-muted-foreground text-center">
+                              No vehicles found matching "{vehicleSearch}"
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="ou-product" className="text-xs font-medium">Product (Optional)</Label>
@@ -821,13 +954,11 @@ export function OwnUsage({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="ou-qty" className="text-xs font-medium">Quantity (L) (Optional)</Label>
-                  <Input id="ou-qty" type="number" min="0" step="0.01" disabled={isView} value={form.quantity} onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))} onWheel={e => e.currentTarget.blur()} tabIndex={6} className="h-9 text-xs font-mono bg-background" placeholder="0.00" />
+                  <Input id="ou-qty" type="number" min="0" step="0.01" disabled={isView} value={form.quantity} onChange={e => handleQuantityChange(e.target.value)} onWheel={e => e.currentTarget.blur()} tabIndex={6} className="h-9 text-xs font-mono bg-background" placeholder="0.00" />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs font-medium">Total Amount (₹)</Label>
-                  <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted font-bold text-cyan-600 font-mono text-xs cursor-not-allowed">
-                    {form.totalAmount ? formatCurrency(parseFloat(form.totalAmount)) : '₹ 0.00'}
-                  </div>
+                  <Label htmlFor="ou-total-amt" className="text-xs font-medium">Total Amount (₹)</Label>
+                  <Input id="ou-total-amt" type="number" min="0" step="0.01" disabled={isView} value={form.totalAmount} onChange={e => handleTotalAmountChange(e.target.value)} onWheel={e => e.currentTarget.blur()} tabIndex={7} className={`h-9 text-xs font-mono font-bold text-cyan-600 ${isView ? 'bg-muted/60' : 'bg-background'}`} placeholder="0.00" />
                 </div>
               </div>
             </div>
@@ -1006,6 +1137,9 @@ export function OwnUsage({
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('date')}>
                     <div className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-muted-foreground" /> Date &amp; Time<SortIcon field="date" /></div>
                   </th>
+                  <th className="text-left p-4 font-medium">
+                    <div className="flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-muted-foreground" /> Vehicle</div>
+                  </th>
                   <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" onClick={() => handleSortToggle('quantity')}>
                     <div className="flex items-center gap-1.5"><Droplet className="w-3.5 h-3.5 text-muted-foreground" /> Quantity (L)<SortIcon field="quantity" /></div>
                   </th>
@@ -1036,6 +1170,12 @@ export function OwnUsage({
                       <div>
                         <p className="font-mono text-sm">{formatDateToDMY(rec.date)}</p>
                         <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {rec.usageTime}</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <p className="font-mono text-sm font-semibold text-foreground">{formatVehicleNumber(rec.vehicleNumber) || rec.vehicleNumber || '—'}</p>
+                        {rec.vehicleType && <p className="text-xs text-muted-foreground">{rec.vehicleType}</p>}
                       </div>
                     </td>
                     <td className="p-4 font-mono text-sm font-semibold text-cyan-600">
@@ -1069,7 +1209,7 @@ export function OwnUsage({
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
                 <tr>
-                  <td colSpan={isEmbedded ? 7 : 8} className="p-4 text-left font-semibold">Page Total ({records.length} records)</td>
+                  <td colSpan={isEmbedded ? 8 : 9} className="p-4 text-left font-semibold">Page Total ({records.length} records)</td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">{formatCurrency(records.reduce((s, r) => s + r.totalAmount, 0))}</td>
                   <td colSpan={1} className="p-4 text-muted-foreground text-left">
                     Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(statsRecords.reduce((s, r) => s + r.totalAmount, 0))}</span> · Total Count: <span className="font-mono text-foreground font-bold">{totalElements}</span>
@@ -1170,15 +1310,20 @@ export function OwnUsage({
 
                 {/* Row 2: Vehicle, Purpose, Authorized By, Approved By (4 Columns) */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-0.5">
-                  {/* Vehicle Autocomplete Typeahead */}
+                  {/* Vehicle Autocomplete Typeahead Dropdown */}
                   <div ref={vehicleRef} className="space-y-1 relative">
-                    <Label htmlFor="ou-vehicle" className="text-xs font-medium">
-                      Vehicle / Equipment No. <span className="text-red-500 font-bold">*</span>
+                    <Label htmlFor="ou-vehicle" className="text-xs font-medium flex items-center justify-between">
+                      <span>Vehicle / Equipment No. <span className="text-red-500 font-bold">*</span></span>
+                      {vehicles.length > 0 && (
+                        <span className="text-[10px] text-muted-foreground font-normal">
+                          {vehicles.length} in Master
+                        </span>
+                      )}
                     </Label>
                     {isView ? (
                       <Input
                         id="ou-vehicle"
-                        value={formatVehicleNumber(form.vehicleNumber)}
+                        value={formatVehicleNumber(form.vehicleNumber) || form.vehicleNumber}
                         disabled
                         tabIndex={-1}
                         className="h-9 text-xs bg-muted font-mono"
@@ -1187,38 +1332,59 @@ export function OwnUsage({
                       <div className="relative">
                         <Input
                           id="ou-vehicle"
-                          placeholder="Search vehicle..."
+                          placeholder="Select or search vehicle..."
                           value={vehicleSearch}
-                          onChange={e => handleVehicleSearchChange(formatVehicleNumber(e.target.value))}
+                          onChange={e => {
+                            const formatted = formatVehicleNumber(e.target.value);
+                            handleVehicleSearchChange(formatted);
+                            setShowVehicleDropdown(true);
+                          }}
                           onFocus={() => setShowVehicleDropdown(true)}
                           disabled={loadingMaster}
                           tabIndex={2}
-                          className="h-9 text-xs font-mono"
+                          className="h-9 text-xs font-mono pr-8 bg-background"
                           autoComplete="off"
+                          required
                         />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowVehicleDropdown(prev => !prev)}
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
                         {loadingMaster && (
-                          <Loader2 className="w-4 h-4 animate-spin absolute right-2.5 top-2.5 text-muted-foreground" />
+                          <Loader2 className="w-4 h-4 animate-spin absolute right-8 top-2.5 text-muted-foreground" />
                         )}
-                        {showVehicleDropdown && vehicleSuggestions.length > 0 && (
-                          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto bg-white dark:bg-slate-900">
-                            {vehicleSuggestions.map((v, i) => (
-                              <div
-                                key={v.id || i}
-                                className="px-3 py-2 hover:bg-muted cursor-pointer text-xs border-b border-border/40 transition-colors flex flex-col"
-                                onClick={() => handleVehicleSelect(v)}
-                              >
-                                <span className="font-semibold text-foreground">{v.vehicleNumber}</span>
-                                <span className="text-[10px] text-muted-foreground mt-0.5">{v.vehicleType} · {v.fuelType}</span>
+                        {showVehicleDropdown && (
+                          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-xl max-h-56 overflow-y-auto bg-white dark:bg-slate-900 divide-y divide-border/40">
+                            {vehicleSuggestions.length > 0 ? (
+                              vehicleSuggestions.map((v, i) => (
+                                <div
+                                  key={v.id || i}
+                                  className="px-3 py-2 hover:bg-muted/80 cursor-pointer text-xs transition-colors flex items-center justify-between"
+                                  onClick={() => handleVehicleSelect(v)}
+                                >
+                                  <div>
+                                    <span className="font-semibold font-mono text-foreground">{v.vehicleNumber}</span>
+                                    <p className="text-[10px] text-muted-foreground">{v.vehicleType} {v.ownerName ? `· ${v.ownerName}` : ''}</p>
+                                  </div>
+                                  {v.fuelType && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200">
+                                      {v.fuelType}
+                                    </Badge>
+                                  )}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="p-3 text-xs text-muted-foreground text-center">
+                                No vehicles found matching "{vehicleSearch}"
                               </div>
-                            ))}
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
-                    {isVehicleWarning && (
-                      <p className="text-[10px] text-amber-600 font-medium absolute mt-0.5 bg-background px-1 z-10">
-                        Vehicle not registered.
-                      </p>
                     )}
                   </div>
 
@@ -1475,23 +1641,34 @@ export function OwnUsage({
                     <Input
                       id="ou-qty"
                       type="number"
-                      min="0.01"
+                      min="0"
                       step="0.01"
                       disabled={isView}
                       value={form.quantity}
-                      onChange={e => setForm(prev => ({ ...prev, quantity: e.target.value }))}
+                      onChange={e => handleQuantityChange(e.target.value)}
                       onWheel={e => e.currentTarget.blur()}
                       tabIndex={11}
                       className="h-9 text-xs font-mono bg-background"
+                      placeholder="0.00"
                     />
                   </div>
 
                   {/* Total Amount */}
                   <div className="space-y-1">
-                    <Label className="text-xs font-medium">Total Amount (₹)</Label>
-                    <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted font-bold text-orange-600 font-mono text-xs cursor-not-allowed">
-                      {form.totalAmount ? formatCurrency(parseFloat(form.totalAmount)) : '₹ 0.00'}
-                    </div>
+                    <Label htmlFor="ou-total-amt" className="text-xs font-medium">Total Amount (₹)</Label>
+                    <Input
+                      id="ou-total-amt"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={isView}
+                      value={form.totalAmount}
+                      onChange={e => handleTotalAmountChange(e.target.value)}
+                      onWheel={e => e.currentTarget.blur()}
+                      tabIndex={12}
+                      className={`h-9 text-xs font-mono font-bold text-orange-600 ${isView ? 'bg-muted/60' : 'bg-background'}`}
+                      placeholder="0.00"
+                    />
                   </div>
                 </div>
               </div>

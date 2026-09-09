@@ -89,10 +89,20 @@ export function isStrictMpdMatch(recMpd?: any, targetMpd?: string): boolean {
   // 2. Exact name match (case-insensitive)
   if (rNorm === tNorm) return true;
 
-  // 3. Tab alias match (e.g. "mpd 1" vs "mpd_1")
+  // 3. Substring match
+  if (rNorm.includes(tNorm) || tNorm.includes(rNorm)) return true;
+
+  // 4. Tab alias match (e.g. "mpd 1" vs "mpd_1")
   const cleanR = rNorm.replace(/\s+/g, '');
   const cleanT = tNorm.replace(/\s+/g, '');
   if (cleanR === cleanT) return true;
+
+  // 5. Numerical dispenser / MPD number match (e.g. "MPD 1" vs "Dispenser 1 - Petrol Regular")
+  const numR = extractMpdNumber(recStr);
+  const numT = extractMpdNumber(targetMpd);
+  if (numR !== 999 && numT !== 999 && numR === numT) {
+    return true;
+  }
 
   return false;
 }

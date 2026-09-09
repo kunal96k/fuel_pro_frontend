@@ -81,7 +81,6 @@ export function CashCollection({
   const [stats, setStats] = useState<CashCollectionStats>({
     totalAmount: 0,
     totalEntries: 0,
-    verifiedCount: 0,
     avgCollection: 0
   });
 
@@ -97,7 +96,6 @@ export function CashCollection({
   const [pageSize] = useState(10);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
   const [shiftFilter, setShiftFilter] = useState('ALL');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
@@ -116,7 +114,7 @@ export function CashCollection({
   const [recordToDelete, setRecordToDelete] = useState<CashCollectionRecord | null>(null);
 
   // Form states
-  const [formRecord, setFormRecord] = useState({
+  const [formRecord, setFormRecord] = useState<any>({
     date: new Date().toISOString().slice(0, 10),
     shift: '',
     shiftId: '',
@@ -125,7 +123,14 @@ export function CashCollection({
     dutyNozzle: '',
     shiftTiming: '',
     depositAmount: '',
-    notes: ''
+    notes: '',
+    notes500: 0,
+    notes200: 0,
+    notes100: 0,
+    notes50: 0,
+    notes20: 0,
+    notes10: 0,
+    coins: 0.0
   });
 
   // Calculate form totals
@@ -235,7 +240,7 @@ export function CashCollection({
     if (formRecord.mpdId && availableEmployees.length > 0) {
       const isCurrentEmpInList = availableEmployees.some(e => String(e.id) === String(formRecord.employeeId));
       if (!isCurrentEmpInList && availableEmployees.length > 0) {
-        setFormRecord(prev => ({ ...prev, employeeId: String(availableEmployees[0].id) }));
+        setFormRecord((prev: any) => ({ ...prev, employeeId: String(availableEmployees[0].id) }));
       }
     }
   }, [formRecord.mpdId, availableEmployees]);
@@ -260,7 +265,6 @@ export function CashCollection({
         page: isEmbedded ? 0 : currentPage,
         size: isEmbedded ? 10000 : pageSize,
         search: searchTerm,
-        status: statusFilter,
         shift: shiftFilter,
         fromDate: activeFromDate || undefined,
         toDate: activeToDate || undefined,
@@ -302,7 +306,6 @@ export function CashCollection({
       // Fetch stats
       const statsRes = await fetchCashCollectionStats({
         search: searchTerm,
-        status: statusFilter,
         shift: shiftFilter,
         fromDate: activeFromDate || undefined,
         toDate: activeToDate || undefined
@@ -314,7 +317,6 @@ export function CashCollection({
           page: 0,
           size: 100000,
           search: searchTerm,
-          status: statusFilter,
           shift: shiftFilter,
           mpd: resolvedMpdName,
           fromDate: activeFromDate || undefined,
@@ -331,12 +333,10 @@ export function CashCollection({
           return mpdOk && shiftOk;
         });
         const totalAmount = allFiltered.reduce((sum, r) => sum + (r.depositAmount || 0), 0);
-        const verifiedCount = allFiltered.filter(r => r.status === 'Verified').length;
         const totalEntries = allFiltered.length;
         setStats({
           totalAmount,
           totalEntries,
-          verifiedCount,
           avgCollection: totalEntries > 0 ? (totalAmount / totalEntries) : 0
         });
       } else {
@@ -347,7 +347,7 @@ export function CashCollection({
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, statusFilter, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate]);
+  }, [currentPage, pageSize, searchTerm, shiftFilter, fromDateFilter, toDateFilter, sortBy, sortDir, isEmbedded, resolvedMpdName, scopeMode, selectedDate, selectedShift]);
 
   // Trigger reload on filter/page/sort changes
   useEffect(() => {
@@ -370,24 +370,10 @@ export function CashCollection({
   // Denomination input change handler
   const handleDenominationChange = (field: string, value: string) => {
     const num = parseFloat(value) || 0;
-    setFormRecord(prev => ({
+    setFormRecord((prev: any) => ({
       ...prev,
       [field]: num < 0 ? 0 : num
     }));
-  };
-
-  // UI status badge helper
-  const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'completed':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">Completed</span>;
-      case 'verified':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500">Verified</span>;
-      case 'pending':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500">Pending</span>;
-      default:
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">{status}</span>;
-    }
   };
 
   // Indian Rupee currency format helper
@@ -452,7 +438,6 @@ export function CashCollection({
       employeeId: autoEmpId,
       mpdId: defaultMpdId,
       depositTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      status: 'Pending',
       notes500: 0,
       notes200: 0,
       notes100: 0,
@@ -466,7 +451,7 @@ export function CashCollection({
 
   // Auto-fill missing shiftId, mpdId, employeeId on formRecord when master data loads
   useEffect(() => {
-    setFormRecord(prev => {
+    setFormRecord((prev: any) => {
       let updated = false;
       const next = { ...prev };
 
@@ -533,7 +518,6 @@ export function CashCollection({
       employeeId: record.employeeId,
       mpdId: record.mpdId,
       depositTime: record.depositTime,
-      status: record.status,
       notes500: record.notes500,
       notes200: record.notes200,
       notes100: record.notes100,
@@ -557,7 +541,6 @@ export function CashCollection({
       employeeId: record.employeeId,
       mpdId: record.mpdId,
       depositTime: record.depositTime,
-      status: record.status,
       notes500: record.notes500,
       notes200: record.notes200,
       notes100: record.notes100,
@@ -628,7 +611,6 @@ export function CashCollection({
       mpdName: selectedMpd ? selectedMpd.mpdName : formRecord.mpdId,
       depositTime: formRecord.depositTime,
       depositAmount: calculateFormTotal(),
-      status: formRecord.status,
       notes500: formRecord.notes500,
       notes200: formRecord.notes200,
       notes100: formRecord.notes100,
@@ -681,9 +663,8 @@ export function CashCollection({
   };
 
   // CSV Exporter helper
-  // CSV Exporter helper
   const downloadCSV = (data: CashCollectionRecord[]) => {
-    const headers = ['Record ID', 'Date', 'Employee', 'MPD', 'Deposit Time', 'Deposit Amount', 'Status', '500 Note Count', '200 Note Count', '100 Note Count', '50 Note Count', '20 Note Count', '10 Note Count', 'Coins Value'];
+    const headers = ['Record ID', 'Date', 'Employee', 'MPD', 'Deposit Time', 'Deposit Amount', '500 Note Count', '200 Note Count', '100 Note Count', '50 Note Count', '20 Note Count', '10 Note Count', 'Coins Value'];
     const rows = data.map(r => [
       r.id,
       formatDateToDMY(r.date),
@@ -691,7 +672,6 @@ export function CashCollection({
       r.mpdName,
       r.depositTime,
       r.depositAmount,
-      r.status,
       r.notes500,
       r.notes200,
       r.notes100,
@@ -736,7 +716,6 @@ export function CashCollection({
             <th>10 Notes</th>
             <th>Coins Value</th>
             <th>Total Amount</th>
-            <th>Status</th>
           </tr>
     `;
     data.forEach(r => {
@@ -755,7 +734,6 @@ export function CashCollection({
           <td>${r.notes10}</td>
           <td>${r.coins}</td>
           <td>${r.depositAmount}</td>
-          <td>${r.status}</td>
         </tr>
       `;
     });
@@ -795,7 +773,6 @@ export function CashCollection({
           <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: 500;">${r.employeeName}</td>
           <td style="padding: 8px; border: 1px solid #cbd5e1;">${r.mpdName}</td>
           <td style="padding: 8px; border: 1px solid #cbd5e1; font-family: monospace; text-align: right; font-weight: bold; color: #1d4ed8;">₹${r.depositAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">${r.status}</td>
         </tr>
       `;
     });
@@ -839,7 +816,6 @@ export function CashCollection({
               <th>Employee</th>
               <th>MPD</th>
               <th style="text-align: right;">Amount</th>
-              <th style="text-align: center; width: 100px;">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -867,7 +843,7 @@ export function CashCollection({
       const allRes = await fetchCashCollections({
         size: 10000,
         search: searchTerm,
-        status: statusFilter,
+        shift: shiftFilter,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -896,7 +872,7 @@ export function CashCollection({
       const allRes = await fetchCashCollections({
         size: 10000,
         search: searchTerm,
-        status: statusFilter,
+        shift: shiftFilter,
         fromDate: fromDateFilter || undefined,
         toDate: toDateFilter || undefined,
         sortBy,
@@ -949,7 +925,7 @@ export function CashCollection({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="mb-2">Cash Collection</h1>
-            <p className="text-muted-foreground">Log shift cash collections, denomination splits, and verification statuses</p>
+            <p className="text-muted-foreground">Log shift cash collections and denomination splits</p>
           </div>
           <Button onClick={handleAddNewClick} className="bg-purple-600 hover:bg-purple-700 text-white gap-2">
             <Plus className="w-4 h-4" />
@@ -960,7 +936,7 @@ export function CashCollection({
 
       {/* Stats Summary Cards */}
       {!isEmbedded && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
             <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-500">
               <IndianRupee className="w-5 h-5" />
@@ -978,16 +954,6 @@ export function CashCollection({
             <div>
               <p className="text-xl font-bold font-mono">{stats.totalEntries}</p>
               <p className="text-xs text-muted-foreground">Total Logs</p>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-            <div className="p-2.5 rounded-lg bg-green-500/10 text-green-500">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xl font-bold font-mono">{stats.verifiedCount}</p>
-              <p className="text-xs text-muted-foreground">Verified Logs</p>
             </div>
           </div>
 
@@ -1057,21 +1023,6 @@ export function CashCollection({
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Status Filter */}
-            <div className="w-32">
-              <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setCurrentPage(0); }}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Status</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                  <SelectItem value="Completed">Completed</SelectItem>
-                  <SelectItem value="Verified">Verified</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -1134,7 +1085,7 @@ export function CashCollection({
               <IndianRupee className="w-12 h-12 opacity-20" />
               <p className="text-sm font-medium">No cash collection records found</p>
               <p className="text-xs text-muted-foreground">
-                {searchTerm || statusFilter !== 'ALL' || fromDateFilter || toDateFilter
+                {searchTerm || fromDateFilter || toDateFilter
                   ? 'Try relaxing search or filter inputs.'
                   : 'Log shift collections to initialize logs.'}
               </p>
@@ -1169,7 +1120,6 @@ export function CashCollection({
                       <IndianRupee className="w-3.5 h-3.5 text-muted-foreground" />
                     </div>
                   </th>
-                  <th className="text-left p-4 font-medium">Status</th>
                   <th className="text-center p-4 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -1221,9 +1171,6 @@ export function CashCollection({
                       {formatCurrency(record.depositAmount)}
                     </td>
                     <td className="p-4">
-                      {getStatusBadge(record.status)}
-                    </td>
-                    <td className="p-4">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => handleViewClick(record)}
@@ -1234,16 +1181,14 @@ export function CashCollection({
                         </button>
                         <button
                           onClick={() => handleEditClick(record)}
-                          disabled={record.status === 'Verified'}
-                          className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-30"
+                          className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
                           title="Edit entry"
                         >
                           <Edit className="w-4 h-4 text-blue-500" />
                         </button>
                         <button
                           onClick={() => handleDeleteClick(record)}
-                          disabled={record.status === 'Verified'}
-                          className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-30"
+                          className="p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
                           title="Delete entry"
                         >
                           <Trash2 className="w-4 h-4 text-red-500" />
@@ -1255,13 +1200,13 @@ export function CashCollection({
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
                 <tr>
-                  <td colSpan={isEmbedded ? 5 : 6} className="p-4 text-left font-semibold">
+                  <td colSpan={isEmbedded ? 4 : 5} className="p-4 text-left font-semibold">
                     Page Total ({records.length} logs)
                   </td>
                   <td className="p-4 text-right font-mono font-bold text-foreground text-base">
                     {formatCurrency(records.reduce((acc, curr) => acc + (curr.depositAmount || 0), 0))}
                   </td>
-                  <td colSpan={2} className="p-4 text-muted-foreground text-left">
+                  <td className="p-4 text-muted-foreground text-left">
                     Overall Total: <span className="font-mono text-foreground font-bold">{formatCurrency(stats.totalAmount)}</span> ({stats.totalEntries} entries)
                   </td>
                 </tr>
@@ -1334,7 +1279,7 @@ export function CashCollection({
                       id="colDate"
                       type="date"
                       value={formRecord.date}
-                      onChange={e => setFormRecord(prev => ({
+                      onChange={e => setFormRecord((prev: any) => ({
                         ...prev,
                         date: e.target.value,
                         mpdId: '',
@@ -1354,7 +1299,7 @@ export function CashCollection({
                       onValueChange={(val) => {
                         const sObj = shifts.find(s => s.id === val);
                         const sName = sObj ? `${sObj.shiftName} (${sObj.startTime}-${sObj.endTime})` : (val === 'NONE' ? '' : val);
-                        setFormRecord(prev => ({
+                        setFormRecord((prev: any) => ({
                           ...prev,
                           shiftId: val === 'NONE' ? '' : val,
                           shift: sName,
@@ -1392,7 +1337,7 @@ export function CashCollection({
                           const duty = dutyAssignments.find(d => String(d.mpdId) === String(mpdVal) && d.employeeId);
                           if (duty && duty.employeeId) autoEmpId = duty.employeeId;
                         }
-                        setFormRecord(prev => ({
+                        setFormRecord((prev: any) => ({
                           ...prev,
                           mpdId: mpdVal,
                           employeeId: autoEmpId || prev.employeeId
@@ -1426,7 +1371,7 @@ export function CashCollection({
                     ) : (
                       <Select
                         value={formRecord.employeeId || 'NONE'}
-                        onValueChange={(val) => setFormRecord(prev => ({ ...prev, employeeId: val === 'NONE' ? '' : val }))}
+                        onValueChange={(val) => setFormRecord((prev: any) => ({ ...prev, employeeId: val === 'NONE' ? '' : val }))}
                         disabled={modalMode === 'view'}
                       >
                         <SelectTrigger className="h-9 text-xs">
@@ -1455,30 +1400,10 @@ export function CashCollection({
                       id="colTime"
                       type="time"
                       value={formRecord.depositTime}
-                      onChange={e => setFormRecord(prev => ({ ...prev, depositTime: e.target.value }))}
+                      onChange={e => setFormRecord((prev: any) => ({ ...prev, depositTime: e.target.value }))}
                       disabled={modalMode === 'view'}
                       className="h-9 text-xs"
                     />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="colStatus" className="text-xs font-medium">
-                      Status <span className="text-red-500 font-bold">*</span>
-                    </Label>
-                    <Select
-                      value={formRecord.status || 'Pending'}
-                      onValueChange={(val: any) => setFormRecord(prev => ({ ...prev, status: val }))}
-                      disabled={modalMode === 'view'}
-                    >
-                      <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Select Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="Verified">Verified</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                 </div>
 

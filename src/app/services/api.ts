@@ -1028,7 +1028,6 @@ export interface CashCollectionRecord {
   mpdName: string;
   depositTime: string;
   depositAmount: number;
-  status: 'Pending' | 'Completed' | 'Verified';
   notes500: number;
   notes200: number;
   notes100: number;
@@ -1042,7 +1041,6 @@ export interface CashCollectionRecord {
 export interface CashCollectionStats {
   totalAmount: number;
   totalEntries: number;
-  verifiedCount: number;
   avgCollection: number;
 }
 
@@ -1060,7 +1058,6 @@ export async function fetchCashCollections(
   if (params.page !== undefined) query.set('page', String(params.page));
   if (params.size !== undefined) query.set('size', String(params.size));
   if (params.search) query.set('search', params.search);
-  if (params.status && params.status !== 'ALL') query.set('status', params.status);
   if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
   if (params.mpd) query.set('mpd', params.mpd);
   if (params.fromDate) query.set('fromDate', params.fromDate);
@@ -1081,7 +1078,6 @@ export async function fetchCashCollections(
     mpdName: item.mpdName,
     depositTime: item.depositTime,
     depositAmount: Number(item.depositAmount),
-    status: item.status,
     notes500: Number(item.notes500 || 0),
     notes200: Number(item.notes200 || 0),
     notes100: Number(item.notes100 || 0),
@@ -1094,11 +1090,10 @@ export async function fetchCashCollections(
 }
 
 export async function fetchCashCollectionStats(
-  params: { search?: string; status?: string; shift?: string; fromDate?: string; toDate?: string } = {}
+  params: { search?: string; shift?: string; fromDate?: string; toDate?: string } = {}
 ): Promise<CashCollectionStats> {
   const query = new URLSearchParams();
   if (params.search) query.set('search', params.search);
-  if (params.status && params.status !== 'ALL') query.set('status', params.status);
   if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
   if (params.fromDate) query.set('fromDate', params.fromDate);
   if (params.toDate) query.set('toDate', params.toDate);
@@ -1121,7 +1116,6 @@ export async function fetchCashCollectionById(id: string): Promise<CashCollectio
     mpdName: item.mpdName,
     depositTime: item.depositTime,
     depositAmount: Number(item.depositAmount),
-    status: item.status,
     notes500: Number(item.notes500 || 0),
     notes200: Number(item.notes200 || 0),
     notes100: Number(item.notes100 || 0),
@@ -1250,10 +1244,20 @@ export async function fetchCustomerById(id: string): Promise<Customer> {
 }
 
 export async function createCustomer(payload: Omit<Customer, 'id' | 'customerCode'>): Promise<Customer> {
+  const sanitizedPayload = {
+    ...payload,
+    vehicles: (payload.vehicles || []).map(v => {
+      const { id, ...rest } = v;
+      if (typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))) {
+        return { ...rest, id: Number(id) };
+      }
+      return rest;
+    }),
+  };
   const res = await fetch(`${API_BASE_URL}/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizedPayload),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
@@ -1264,10 +1268,20 @@ export async function createCustomer(payload: Omit<Customer, 'id' | 'customerCod
 }
 
 export async function updateCustomer(id: string, payload: Omit<Customer, 'id' | 'customerCode'>): Promise<Customer> {
+  const sanitizedPayload = {
+    ...payload,
+    vehicles: (payload.vehicles || []).map(v => {
+      const { id: vId, ...rest } = v;
+      if (typeof vId === 'number' || (typeof vId === 'string' && /^\d+$/.test(vId))) {
+        return { ...rest, id: Number(vId) };
+      }
+      return rest;
+    }),
+  };
   const res = await fetch(`${API_BASE_URL}/customers/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizedPayload),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
