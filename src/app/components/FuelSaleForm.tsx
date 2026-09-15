@@ -1733,10 +1733,21 @@ function MPDTabContent({
             const testing = Number(r.testingQuantity) || 0;
             const open = Number(r.openingReading) || 0;
             const close = Number(r.closingReading) || 0;
-            const rate = Number(r.rate || r.ratePerLitre) || getFuelRate(pName, rateMaster) || 0;
+            const rate = r.rate !== undefined && r.rate !== null && Number(r.rate) > 0
+              ? Number(r.rate)
+              : (r.ratePerLitre !== undefined && r.ratePerLitre !== null && Number(r.ratePerLitre) > 0
+                ? Number(r.ratePerLitre)
+                : (getFuelRate(pName, rateMaster) || 0));
 
-            let units = (close > open) ? (close - open) : (Number(r.salesLiters) || Number(r.salesQuantity) || Number(r.grossSalesQuantity) || 0);
-            let amount = (units > 0 && rate > 0) ? (units * rate) : (Number(r.totalAmount) || Number(r.netAmount) || 0);
+            const units = r.salesLiters !== undefined && r.salesLiters !== null
+              ? Number(r.salesLiters)
+              : (r.salesQuantity !== undefined && r.salesQuantity !== null
+                ? Number(r.salesQuantity)
+                : (close >= open ? Math.max(0, (close - open) - testing) : 0));
+
+            const amount = r.totalAmount !== undefined && r.totalAmount !== null
+              ? Number(r.totalAmount)
+              : (units * rate);
 
             totalOverallMeterAmt += amount;
 
@@ -2436,8 +2447,8 @@ function MPDSummaryTab({
 
   const testingAmt = displayProductWise.reduce((sum, r) => sum + (r.testing * r.rate), 0);
   const grossMeterSalesTotal = meterReadingTotal;
-  const rawBalance = meterReadingTotal - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal - effectiveShortage + effectiveRoundUp;
-  const balance = Math.abs(rawBalance) < 0.001 ? 0 : rawBalance;
+  const rawBalance = meterReadingTotal - creditSalesTotal - ownUseTotal - settlementsTotal - employeeDepositsTotal - effectiveShortage - effectiveRoundUp;
+  const balance = Math.abs(rawBalance) < 0.01 ? 0 : rawBalance;
 
   const handleSaveAttribution = async () => {
     if (shortageVal > 0 && shortageItems.length === 0 && !selectedEmployeeId) {
@@ -4304,9 +4315,23 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
             if (!fuelGroup[pName]) fuelGroup[pName] = { testing: 0, units: 0, amount: 0, rateSum: 0, count: 0 };
 
             const testing = Number(r.testingQuantity) || 0;
-            const rate = Number(r.rate || r.ratePerLitre) || getFuelRate(pName, rateMaster) || 0;
-            const units = Number(r.salesLiters) || (Number(r.closingReading) > Number(r.openingReading) ? Number(r.closingReading) - Number(r.openingReading) : (Number(r.salesQuantity) || 0));
-            const amount = Number(r.totalAmount) || (units * rate) || 0;
+            const open = Number(r.openingReading) || 0;
+            const close = Number(r.closingReading) || 0;
+            const rate = r.rate !== undefined && r.rate !== null && Number(r.rate) > 0
+              ? Number(r.rate)
+              : (r.ratePerLitre !== undefined && r.ratePerLitre !== null && Number(r.ratePerLitre) > 0
+                ? Number(r.ratePerLitre)
+                : (getFuelRate(pName, rateMaster) || 0));
+
+            const units = r.salesLiters !== undefined && r.salesLiters !== null
+              ? Number(r.salesLiters)
+              : (r.salesQuantity !== undefined && r.salesQuantity !== null
+                ? Number(r.salesQuantity)
+                : (close >= open ? Math.max(0, (close - open) - testing) : 0));
+
+            const amount = r.totalAmount !== undefined && r.totalAmount !== null
+              ? Number(r.totalAmount)
+              : (units * rate);
 
             totalMeterSalesAmt += amount;
             totalMeterSalesVol += units;
@@ -5024,10 +5049,10 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                 <div className="p-5 space-y-4">
                   {(() => {
                     const grossAllMpdsMeterTotal = allMpdsMeterTotal;
-                    const netCashSalesRevenue = grossAllMpdsMeterTotal - allMpdsCreditTotal - allMpdsSettlementsTotal - allMpdsDepositsTotal - allMpdsShortagesTotal + allMpdsRoundUpTotal;
+                    const netCashSalesRevenue = grossAllMpdsMeterTotal - allMpdsCreditTotal - allMpdsSettlementsTotal - allMpdsDepositsTotal - allMpdsShortagesTotal - allMpdsRoundUpTotal;
                     const internalUseExpensesTotal = allMpdsOwnUseTotal;
                     const rawAllMpdsFinalBalance = netCashSalesRevenue - internalUseExpensesTotal;
-                    const allMpdsFinalBalance = Math.abs(rawAllMpdsFinalBalance) < 0.001 ? 0 : rawAllMpdsFinalBalance;
+                    const allMpdsFinalBalance = Math.abs(rawAllMpdsFinalBalance) < 0.01 ? 0 : rawAllMpdsFinalBalance;
                     const isZero = Math.abs(allMpdsFinalBalance) < 0.01;
                     const isPositive = allMpdsFinalBalance > 0;
 
@@ -5079,10 +5104,12 @@ export function FuelSaleForm({ defaultTab = 'MPD_1' }: { defaultTab?: string }) 
                                   <span className="font-bold text-amber-600">+ {formatIndianCurrency(allMpdsShortagesTotal)}</span>
                                 </div>
                               )}
-                              {allMpdsRoundUpTotal > 0 && (
+                              {allMpdsRoundUpTotal !== 0 && (
                                 <div className="flex justify-between items-center py-1.5 border-b">
-                                  <span className="text-muted-foreground font-medium">Add: Round Up:</span>
-                                  <span className="font-bold text-green-600">+ {formatIndianCurrency(allMpdsRoundUpTotal)}</span>
+                                  <span className="text-muted-foreground font-medium">Round Up / Difference:</span>
+                                  <span className="font-bold text-blue-600">
+                                    {allMpdsRoundUpTotal > 0 ? `+ ${formatIndianCurrency(allMpdsRoundUpTotal)}` : `- ${formatIndianCurrency(Math.abs(allMpdsRoundUpTotal))}`}
+                                  </span>
                                 </div>
                               )}
                             </div>
