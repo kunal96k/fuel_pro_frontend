@@ -1876,5 +1876,51 @@ export async function deleteSettlementApi(id: string): Promise<void> {
   }
 }
 
+// --- Summary Report API with Server-Side Pagination ---
+export interface SummaryReportQueryParams {
+  page?: number;
+  size?: number;
+  fiscalYear?: string;
+  month?: string;
+  fromDate?: string;
+  toDate?: string;
+  mpds?: string;
+  shift?: string;
+  search?: string;
+  viewMode?: 'shift' | 'day' | 'year';
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+}
 
+export interface SummaryReportResponse<T> {
+  content: T[];
+  totalPages: number;
+  totalElements: number;
+  number: number;
+  size: number;
+  first?: boolean;
+  last?: boolean;
+  grandTotal?: any;
+}
 
+export async function fetchMonthlySummaryReportApi<T = any>(params: SummaryReportQueryParams = {}): Promise<SummaryReportResponse<T>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.fiscalYear) query.set('fiscalYear', params.fiscalYear);
+  if (params.month) query.set('month', params.month);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.mpds) query.set('mpds', params.mpds);
+  if (params.shift && params.shift !== 'ALL') query.set('shift', params.shift);
+  if (params.search) query.set('search', params.search);
+  if (params.viewMode) query.set('viewMode', params.viewMode);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/reports/monthly-summary?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch summary report: ${res.statusText}`);
+  }
+  return await res.json();
+}

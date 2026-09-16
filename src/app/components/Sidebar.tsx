@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
+import {
+  LayoutDashboard,
+  ShoppingCart,
   TrendingUp,
   ClipboardList,
   IndianRupee,
-  FileText, 
-  Workflow, 
-  BarChart3, 
-  CreditCard, 
-  Shield, 
+  FileText,
+  Workflow,
+  BarChart3,
+  CreditCard,
+  Shield,
   Settings,
   Building2,
   ChevronDown,
@@ -51,9 +51,9 @@ const navigationItems = [
       { id: 'customer', label: 'Customer' },
     ]
   },
-  { 
-    id: 'daily-operation', 
-    label: 'Daily Operation', 
+  {
+    id: 'daily-operation',
+    label: 'Daily Operation',
     icon: ClipboardList,
     iconColor: 'text-orange-500',
     children: [
@@ -64,9 +64,9 @@ const navigationItems = [
       { id: 'fuel-testing', label: 'Fuel Testing' },
     ]
   },
-  { 
-    id: 'sales', 
-    label: 'Sales', 
+  {
+    id: 'sales',
+    label: 'Sales',
     icon: TrendingUp,
     iconColor: 'text-green-500',
     children: [
@@ -74,9 +74,9 @@ const navigationItems = [
       { id: 'oil-sale', label: 'Oil Sale' },
     ]
   },
-  { 
-    id: 'purchase', 
-    label: 'Purchase', 
+  {
+    id: 'purchase',
+    label: 'Purchase',
     icon: ShoppingCart,
     iconColor: 'text-purple-500',
     children: [
@@ -114,7 +114,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const [showTankDipDialog, setShowTankDipDialog] = useState(false);
   const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
   const [tanks, setTanks] = useState<Tank[]>([]);
-  
+
   // Helper to format date in IST (YYYY-MM-DD)
   const getISTDateString = (dateObj: Date = new Date()) => {
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -160,7 +160,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
       }
     };
     loadShifts();
-    
+
     // Periodically sync (every 2 minutes)
     const interval = setInterval(loadShifts, 120000);
     return () => clearInterval(interval);
@@ -408,8 +408,8 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const ShiftIcon = shift.icon;
 
   const toggleExpanded = (itemId: string) => {
-    setExpandedItems(prev => 
-      prev.includes(itemId) 
+    setExpandedItems(prev =>
+      prev.includes(itemId)
         ? prev.filter(id => id !== itemId)
         : [...prev, itemId]
     );
@@ -493,7 +493,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
             const isExpanded = expandedItems.includes(item.id);
             const isActive = activeSection === item.id || item.children?.some(child => child.id === activeSection);
             const parentIconColor = item.iconColor || '';
-            
+
             return (
               <li key={item.id}>
                 {item.children ? (
@@ -501,11 +501,10 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
                     <button
                       id={`sidebar-${item.id}-menu`}
                       onClick={() => toggleExpanded(item.id)}
-                      className={`group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${
-                        isActive 
-                          ? 'bg-sidebar-accent text-sidebar-accent-foreground' 
+                      className={`group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${isActive
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                           : `text-sidebar-foreground ${getColorClasses(item.iconColor || '')}`
-                      }`}
+                        }`}
                     >
                       <Icon className={`w-5 h-5 ${item.iconColor || ''} transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110`} />
                       <span className="flex-1 text-left">{item.label}</span>
@@ -522,11 +521,10 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
                             <button
                               id={`sidebar-${child.id}-link`}
                               onClick={() => onSectionChange(child.id)}
-                              className={`group w-full text-left px-3 py-1.5 rounded-lg text-sm transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${
-                                activeSection === child.id
+                              className={`group w-full text-left px-3 py-1.5 rounded-lg text-sm transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${activeSection === child.id
                                   ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                                   : `text-sidebar-foreground ${getColorClasses(parentIconColor)}`
-                              }`}
+                                }`}
                             >
                               {child.label}
                             </button>
@@ -539,11 +537,10 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
                   <button
                     id={`sidebar-${item.id}-menu`}
                     onClick={() => onSectionChange(item.id)}
-                    className={`group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${
-                      isActive 
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground' 
+                    className={`group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg border border-transparent ${isActive
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                         : `text-sidebar-foreground ${getColorClasses(item.iconColor || '')}`
-                    }`}
+                      }`}
                   >
                     <Icon className={`w-5 h-5 ${item.iconColor || ''} transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110`} />
                     <span>{item.label}</span>

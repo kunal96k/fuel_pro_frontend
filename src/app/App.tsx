@@ -28,6 +28,7 @@ import { VoucherPayment } from './components/VoucherPayment';
 import { VoucherReceipt } from './components/VoucherReceipt';
 import { OwnUsage } from './components/OwnUsage';
 import { FuelTesting } from './components/FuelTesting';
+import { MonthlyYearlySummaryReport } from './components/MonthlyYearlySummaryReport';
 
 const reportTitles: Record<string, string> = {
   'daily-shift-report': 'Daily Shift Report',
@@ -52,10 +53,15 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
 
   const renderContent = () => {
+    // Check if it's Monthly/Yearly Summary Report
+    if (activeSection === 'monthly-yearly-summary') {
+      return <MonthlyYearlySummaryReport />;
+    }
+
     // Check if it's a specific report
     if (reportTitles[activeSection]) {
       return (
-        <ReportViewer 
+        <ReportViewer
           reportId={activeSection}
           reportTitle={reportTitles[activeSection]}
           onBack={() => setActiveSection('reports')}
