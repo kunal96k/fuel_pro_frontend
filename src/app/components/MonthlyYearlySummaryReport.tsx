@@ -1109,8 +1109,8 @@ export function MonthlyYearlySummaryReport() {
       </div>
 
       {/* ── Main Table (Dynamic Master Headers) ── */}
-      <div className="bg-card rounded-lg border border-border overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-card rounded-lg border border-border shadow-sm overflow-hidden">
+        <div className="overflow-x-auto max-h-[72vh] overflow-y-auto relative">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -1125,12 +1125,12 @@ export function MonthlyYearlySummaryReport() {
               </p>
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 border-b border-border">
-                <tr>
-                  <th className="w-12 text-left p-3 font-medium text-muted-foreground whitespace-nowrap">S.No</th>
+            <table className="w-full text-sm border-separate border-spacing-0">
+              <thead className="sticky top-0 z-20 shadow-sm">
+                <tr className="bg-muted/95 backdrop-blur-md">
+                  <th className="w-12 text-left p-3 font-medium text-muted-foreground whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border">S.No</th>
                   <th
-                    className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                    className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                     onClick={() => handleSortToggle('date')}
                   >
                     <div className="flex items-center gap-1.5">
@@ -1142,7 +1142,7 @@ export function MonthlyYearlySummaryReport() {
 
                   {viewMode !== 'year' && (
                     <th
-                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                      className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                       onClick={() => handleSortToggle('shift')}
                     >
                       <div className="flex items-center gap-1.5">
@@ -1157,7 +1157,7 @@ export function MonthlyYearlySummaryReport() {
                   {columnsMeta.products.map(prod => (
                     <React.Fragment key={prod.key}>
                       <th
-                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                         onClick={() => handleSortToggle(prod.qtyKey)}
                       >
                         <div className="flex items-center gap-1 justify-end">
@@ -1166,7 +1166,7 @@ export function MonthlyYearlySummaryReport() {
                         </div>
                       </th>
                       <th
-                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                         onClick={() => handleSortToggle(prod.amountKey)}
                       >
                         <div className="flex items-center gap-1 justify-end">
@@ -1179,7 +1179,7 @@ export function MonthlyYearlySummaryReport() {
 
                   {/* Total Sales */}
                   <th
-                    className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40"
+                    className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted backdrop-blur-md border-b border-border"
                     onClick={() => handleSortToggle('totalSales')}
                   >
                     <div className="flex items-center gap-1 justify-end">
@@ -1192,7 +1192,7 @@ export function MonthlyYearlySummaryReport() {
                   {columnsMeta.payments.map(pay => (
                     <th
                       key={pay.key}
-                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                       onClick={() => handleSortToggle(pay.key)}
                     >
                       <div className="flex items-center gap-1 justify-end">
@@ -1202,14 +1202,14 @@ export function MonthlyYearlySummaryReport() {
                     </th>
                   ))}
                   <th
-                    className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40"
+                    className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted backdrop-blur-md border-b border-border"
                     onClick={() => handleSortToggle('totalOnline')}
                   >
                     <div className="flex items-center gap-1 justify-end">Total Online<SortIcon field="totalOnline" /></div>
                   </th>
 
                   {/* Credit Sales */}
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('creditSales')}>
+                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('creditSales')}>
                     <div className="flex items-center gap-1 justify-end">Credit Sales<SortIcon field="creditSales" /></div>
                   </th>
 
@@ -1217,7 +1217,7 @@ export function MonthlyYearlySummaryReport() {
                   {columnsMeta.vehicles.map(veh => (
                     <th
                       key={veh.key}
-                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border"
                       onClick={() => handleSortToggle(veh.key)}
                     >
                       <div className="flex items-center gap-1 justify-end">
@@ -1226,21 +1226,21 @@ export function MonthlyYearlySummaryReport() {
                       </div>
                     </th>
                   ))}
-                  <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40" onClick={() => handleSortToggle('totalConsumption')}>
+                  <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('totalConsumption')}>
                     <div className="flex items-center gap-1 justify-end">Total Consumption<SortIcon field="totalConsumption" /></div>
                   </th>
 
                   {/* Cash Reconciliation */}
-                  <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-teal-500/10" onClick={() => handleSortToggle('netCashSales')}>
+                  <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-teal-500/20 backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('netCashSales')}>
                     <div className="flex items-center gap-1 justify-end">Net Cash Sales<SortIcon field="netCashSales" /></div>
                   </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('employeeDeposit')}>
+                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('employeeDeposit')}>
                     <div className="flex items-center gap-1 justify-end">Employee Deposit<SortIcon field="employeeDeposit" /></div>
                   </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('finalChallan')}>
+                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('finalChallan')}>
                     <div className="flex items-center gap-1 justify-end">Final Challan<SortIcon field="finalChallan" /></div>
                   </th>
-                  <th className="text-right p-3 font-bold cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('difference')}>
+                  <th className="text-right p-3 font-bold cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/95 backdrop-blur-md border-b border-border" onClick={() => handleSortToggle('difference')}>
                     <div className="flex items-center gap-1 justify-end">Difference<SortIcon field="difference" /></div>
                   </th>
                 </tr>
@@ -1248,14 +1248,14 @@ export function MonthlyYearlySummaryReport() {
               <tbody className="divide-y divide-border">
                 {records.map((record, index) => (
                   <tr key={record.id || index} className="hover:bg-muted/30 transition-colors">
-                    <td className="p-3 text-muted-foreground font-mono text-xs">
+                    <td className="p-3 text-muted-foreground font-mono text-xs border-b border-border/50">
                       {currentPage * pageSize + index + 1}
                     </td>
-                    <td className="p-3 font-medium whitespace-nowrap">
+                    <td className="p-3 font-medium whitespace-nowrap border-b border-border/50">
                       {formatDateDisplay(record.date, record)}
                     </td>
                     {viewMode !== 'year' && (
-                      <td className="p-3 whitespace-nowrap">
+                      <td className="p-3 whitespace-nowrap border-b border-border/50">
                         <Badge
                           variant="outline"
                           className={
@@ -1274,53 +1274,53 @@ export function MonthlyYearlySummaryReport() {
                     {/* Dynamic Fuel Products Cells */}
                     {columnsMeta.products.map(prod => (
                       <React.Fragment key={prod.key}>
-                        <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap border-b border-border/50">
                           {formatLitres(record[prod.qtyKey] ?? (prod.name.toLowerCase().includes('petrol') ? record.petrolQty : record.dieselQty))}
                         </td>
-                        <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                        <td className="p-3 text-right font-mono text-xs whitespace-nowrap border-b border-border/50">
                           {formatCurrency(record[prod.amountKey] ?? (prod.name.toLowerCase().includes('petrol') ? record.petrolAmount : record.dieselAmount))}
                         </td>
                       </React.Fragment>
                     ))}
 
-                    <td className="p-3 text-right font-bold text-foreground font-mono text-xs whitespace-nowrap bg-muted/20">
+                    <td className="p-3 text-right font-bold text-foreground font-mono text-xs whitespace-nowrap bg-muted/20 border-b border-border/50">
                       {formatCurrency(record.totalSales)}
                     </td>
 
                     {/* Dynamic Payments Cells */}
                     {columnsMeta.payments.map(pay => (
-                      <td key={pay.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <td key={pay.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap border-b border-border/50">
                         {formatCurrency(record[pay.key])}
                       </td>
                     ))}
 
-                    <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20">
+                    <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20 border-b border-border/50">
                       {formatCurrency(record.totalOnline)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap border-b border-border/50">
                       {formatCurrency(record.creditSales)}
                     </td>
 
                     {/* Dynamic Vehicles Cells */}
                     {columnsMeta.vehicles.map(veh => (
-                      <td key={veh.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <td key={veh.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap border-b border-border/50">
                         {formatCurrency(record[veh.key])}
                       </td>
                     ))}
 
-                    <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20">
+                    <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20 border-b border-border/50">
                       {formatCurrency(record.totalConsumption)}
                     </td>
-                    <td className="p-3 text-right font-bold text-teal-600 font-mono text-xs whitespace-nowrap bg-teal-500/5">
+                    <td className="p-3 text-right font-bold text-teal-600 font-mono text-xs whitespace-nowrap bg-teal-500/5 border-b border-border/50">
                       {formatCurrency(record.netCashSales)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap border-b border-border/50">
                       {formatCurrency(record.employeeDeposit)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap border-b border-border/50">
                       {formatCurrency(record.finalChallan)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap border-b border-border/50">
                       <span className={Math.abs(record.difference || 0) < 1 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-semibold'}>
                         {formatCurrency(record.difference)}
                       </span>
@@ -1328,7 +1328,7 @@ export function MonthlyYearlySummaryReport() {
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
+              <tfoot className="sticky bottom-0 z-20 bg-background/95 backdrop-blur-md border-t-2 border-border shadow-[0_-4px_12px_rgba(0,0,0,0.08)] text-xs font-medium">
                 {/* Page Total Row */}
                 <tr>
                   <td colSpan={viewMode === 'year' ? 2 : 3} className="p-3 text-left font-semibold">
