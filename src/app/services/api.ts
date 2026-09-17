@@ -1892,7 +1892,38 @@ export interface SummaryReportQueryParams {
   sortDir?: 'asc' | 'desc';
 }
 
+export interface SummaryReportProductCol {
+  id: any;
+  name: string;
+  key: string;
+  qtyKey: string;
+  amountKey: string;
+  unit: string;
+}
+
+export interface SummaryReportPaymentCol {
+  id: any;
+  name: string;
+  key: string;
+}
+
+export interface SummaryReportVehicleCol {
+  id: any;
+  name: string;
+  key: string;
+  make?: string;
+  vehicleNumber?: string;
+  vehicleType?: string;
+}
+
+export interface SummaryReportColumnsMeta {
+  products: SummaryReportProductCol[];
+  payments: SummaryReportPaymentCol[];
+  vehicles: SummaryReportVehicleCol[];
+}
+
 export interface SummaryReportResponse<T> {
+  columns?: SummaryReportColumnsMeta;
   content: T[];
   totalPages: number;
   totalElements: number;

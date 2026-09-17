@@ -43,7 +43,11 @@ import {
 import {
   fetchMonthlySummaryReportApi,
   SummaryReportQueryParams,
-  SummaryReportResponse
+  SummaryReportResponse,
+  SummaryReportColumnsMeta,
+  SummaryReportProductCol,
+  SummaryReportPaymentCol,
+  SummaryReportVehicleCol
 } from '../services/api';
 import { toast } from 'sonner';
 
@@ -54,30 +58,15 @@ export interface SummaryReportRow {
   monthName?: string;
   period?: string;
   shift: string;
-  petrolQty: number;
-  petrolAmount: number;
-  dieselQty: number;
-  dieselAmount: number;
   totalSales: number;
-  phonePe: number;
-  bpclAlp: number;
-  ufil: number;
-  hdfcSwap: number;
-  fino: number;
-  rtgs: number;
   totalOnline: number;
   creditSales: number;
-  nios: number;
-  legender: number;
-  seltos: number;
-  scorpio: number;
-  tanker: number;
-  dgSet: number;
   totalConsumption: number;
   netCashSales: number;
   employeeDeposit: number;
   finalChallan: number;
   difference: number;
+  [key: string]: any;
 }
 
 const FISCAL_YEARS = [
@@ -113,6 +102,29 @@ const ALL_MPD_OPTIONS = [
   { id: 'MPD-4', label: 'MPD 4' },
 ];
 
+const DEFAULT_COLUMNS: SummaryReportColumnsMeta = {
+  products: [
+    { id: 1, name: 'Petrol E20', key: 'petrolE20', qtyKey: 'petrolE20Qty', amountKey: 'petrolE20Amount', unit: 'Litre' },
+    { id: 2, name: 'Diesel', key: 'diesel', qtyKey: 'dieselQty', amountKey: 'dieselAmount', unit: 'Litre' }
+  ],
+  payments: [
+    { id: 'phonePe', name: 'Phone Pe', key: 'phonePe' },
+    { id: 'bpclAlp', name: 'BPCL/ALP', key: 'bpclAlp' },
+    { id: 'ufil', name: 'UFIL', key: 'ufil' },
+    { id: 'hdfcSwap', name: 'HDFC Swap', key: 'hdfcSwap' },
+    { id: 'fino', name: 'Fino', key: 'fino' },
+    { id: 'rtgs', name: 'RTGS', key: 'rtgs' }
+  ],
+  vehicles: [
+    { id: 1, name: 'Tanker', key: 'tanker', make: 'Ashok Leyland', vehicleNumber: 'Tanker' },
+    { id: 2, name: 'D.G.Set', key: 'dgset', make: 'Kirloskar', vehicleNumber: 'D.G.Set' },
+    { id: 3, name: 'Seltos', key: 'seltos', make: 'Kia', vehicleNumber: 'Seltos' },
+    { id: 4, name: 'Scorpio', key: 'scorpio', make: 'Mahindra', vehicleNumber: 'Scorpio' },
+    { id: 5, name: 'Nios', key: 'nios', make: 'Hyundai', vehicleNumber: 'Nios' },
+    { id: 6, name: 'Legender', key: 'legender', make: 'Toyota', vehicleNumber: 'Legender' }
+  ]
+};
+
 export function MonthlyYearlySummaryReport() {
   // ── Filters ──
   const [viewMode, setViewMode] = useState<'shift' | 'day' | 'year'>('shift');
@@ -131,16 +143,27 @@ export function MonthlyYearlySummaryReport() {
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [pageSize, setPageSize] = useState<number>(20);
 
-  // ── Data State ──
+  // ── Dynamic Metadata & Data State ──
+  const [columnsMeta, setColumnsMeta] = useState<SummaryReportColumnsMeta>(DEFAULT_COLUMNS);
   const [records, setRecords] = useState<SummaryReportRow[]>([]);
   const [grandTotal, setGrandTotal] = useState<Partial<SummaryReportRow>>({});
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalElements, setTotalElements] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
+  const [exporting, setExporting] = useState<boolean>(false);
 
   // Helpers
   const formatCurrency = (amount?: number) => {
     if (amount === undefined || amount === null || isNaN(amount)) return '₹0.00';
+    if (amount < 0) {
+      const pos = Math.abs(amount);
+      const formatted = new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 2
+      }).format(pos);
+      return `(${formatted})`;
+    }
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -224,6 +247,9 @@ export function MonthlyYearlySummaryReport() {
       };
 
       const res: SummaryReportResponse<SummaryReportRow> = await fetchMonthlySummaryReportApi<SummaryReportRow>(params);
+      if (res.columns) {
+        setColumnsMeta(res.columns);
+      }
       setRecords(res.content || []);
       setTotalPages(res.totalPages || 1);
       setTotalElements(res.totalElements || 0);
@@ -258,263 +284,561 @@ export function MonthlyYearlySummaryReport() {
       : <ArrowDown className="w-3.5 h-3.5 text-primary ml-1 inline-block" />;
   };
 
-  // ── Export handlers (Exact Summary Sheet Format: 26 Columns) ──
-  const handleExport = (format: 'csv' | 'excel') => {
-    if (!records || records.length === 0) {
-      toast.warning('No data to export');
-      return;
-    }
+  // ── Enhanced Export handlers (Complete Filtered Dataset + ASC Oldest First + Month Table Separation + Excel Design) ──
+  const handleExport = async (format: 'csv' | 'excel') => {
+    try {
+      setExporting(true);
+      toast.info(`Fetching complete dataset for export...`);
 
-    const headers = [
-      'Date',
-      'Shift',
-      'Petrol Qty.',
-      'Amount',
-      'Diesel Qty.',
-      'Amount',
-      'Total Sales',
-      'Phone Pe',
-      'BPCL/ALP',
-      'UFIL',
-      'HDFC Swap',
-      'Fino',
-      'RTGS',
-      'Total Online',
-      'Credit Sales',
-      'Nios',
-      'Legender',
-      'Seltos',
-      'Scorpio',
-      'Tanker',
-      'D.G.Set',
-      'Total Consumption',
-      'Net Cash Sales',
-      'Employee Deposit',
-      'Final Challan',
-      'Difference'
-    ];
+      const mpdParam = (selectedMpds.length === 0 || selectedMpds.length === ALL_MPD_OPTIONS.length)
+        ? 'ALL'
+        : selectedMpds.join(',');
 
-    const formatVal = (v: number | undefined) => (v !== undefined && v !== null ? Number(v).toFixed(2) : '0.00');
+      const queryParams: SummaryReportQueryParams = {
+        page: 0,
+        size: 5000, // Fetch all records matching the filter criteria
+        fiscalYear,
+        month: (fromDate || toDate) ? 'ALL' : month,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        mpds: mpdParam,
+        shift: viewMode === 'shift' ? selectedShift : 'ALL',
+        search: searchTerm.trim(),
+        viewMode,
+        sortBy: 'date',
+        sortDir: 'asc' // Oldest created data on top (ASC)
+      };
 
-    if (format === 'excel') {
-      const excelRows = records.map(r => `
-        <tr>
-          <td>${formatDateDisplay(r.date, r)}</td>
-          <td>${r.shift || ''}</td>
-          <td class="num">${formatVal(r.petrolQty)}</td>
-          <td class="num">${formatVal(r.petrolAmount)}</td>
-          <td class="num">${formatVal(r.dieselQty)}</td>
-          <td class="num">${formatVal(r.dieselAmount)}</td>
-          <td class="num font-bold">${formatVal(r.totalSales)}</td>
-          <td class="num">${formatVal(r.phonePe)}</td>
-          <td class="num">${formatVal(r.bpclAlp)}</td>
-          <td class="num">${formatVal(r.ufil)}</td>
-          <td class="num">${formatVal(r.hdfcSwap)}</td>
-          <td class="num">${formatVal(r.fino)}</td>
-          <td class="num">${formatVal(r.rtgs)}</td>
-          <td class="num font-bold">${formatVal(r.totalOnline)}</td>
-          <td class="num">${formatVal(r.creditSales)}</td>
-          <td class="num">${formatVal(r.nios)}</td>
-          <td class="num">${formatVal(r.legender)}</td>
-          <td class="num">${formatVal(r.seltos)}</td>
-          <td class="num">${formatVal(r.scorpio)}</td>
-          <td class="num">${formatVal(r.tanker)}</td>
-          <td class="num">${formatVal(r.dgSet)}</td>
-          <td class="num font-bold">${formatVal(r.totalConsumption)}</td>
-          <td class="num font-bold">${formatVal(r.netCashSales)}</td>
-          <td class="num">${formatVal(r.employeeDeposit)}</td>
-          <td class="num">${formatVal(r.finalChallan)}</td>
-          <td class="num font-bold">${formatVal(r.difference)}</td>
-        </tr>
-      `).join('');
+      const res = await fetchMonthlySummaryReportApi<SummaryReportRow>(queryParams);
+      const exportRecords: SummaryReportRow[] = res.content || [];
+      const exportGrand: Partial<SummaryReportRow> = res.grandTotal || grandTotal || {};
 
-      let grandTotalRow = '';
-      if (grandTotal) {
-        grandTotalRow = `
-          <tr style="background-color: #e2e8f0; font-weight: bold;">
-            <td colspan="2">GRAND TOTAL</td>
-            <td class="num">${formatVal(grandTotal.petrolQty)}</td>
-            <td class="num">${formatVal(grandTotal.petrolAmount)}</td>
-            <td class="num">${formatVal(grandTotal.dieselQty)}</td>
-            <td class="num">${formatVal(grandTotal.dieselAmount)}</td>
-            <td class="num">${formatVal(grandTotal.totalSales)}</td>
-            <td class="num">${formatVal(grandTotal.phonePe)}</td>
-            <td class="num">${formatVal(grandTotal.bpclAlp)}</td>
-            <td class="num">${formatVal(grandTotal.ufil)}</td>
-            <td class="num">${formatVal(grandTotal.hdfcSwap)}</td>
-            <td class="num">${formatVal(grandTotal.fino)}</td>
-            <td class="num">${formatVal(grandTotal.rtgs)}</td>
-            <td class="num">${formatVal(grandTotal.totalOnline)}</td>
-            <td class="num">${formatVal(grandTotal.creditSales)}</td>
-            <td class="num">${formatVal(grandTotal.nios)}</td>
-            <td class="num">${formatVal(grandTotal.legender)}</td>
-            <td class="num">${formatVal(grandTotal.seltos)}</td>
-            <td class="num">${formatVal(grandTotal.scorpio)}</td>
-            <td class="num">${formatVal(grandTotal.tanker)}</td>
-            <td class="num">${formatVal(grandTotal.dgSet)}</td>
-            <td class="num">${formatVal(grandTotal.totalConsumption)}</td>
-            <td class="num">${formatVal(grandTotal.netCashSales)}</td>
-            <td class="num">${formatVal(grandTotal.employeeDeposit)}</td>
-            <td class="num">${formatVal(grandTotal.finalChallan)}</td>
-            <td class="num">${formatVal(grandTotal.difference)}</td>
-          </tr>
-        `;
+      if (exportRecords.length === 0) {
+        toast.warning('No records found to export for the selected filter');
+        return;
       }
 
-      const excelHtml = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-          <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Summary</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-          <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
-          <style>
-            th { background-color: #f8fafc; font-weight: bold; border: 1px solid #cbd5e1; padding: 6px 10px; font-size: 11pt; }
-            td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 10pt; }
-            .num { mso-number-format:"\\#\\,\\#\\#0\\.00"; text-align: right; }
-            .font-bold { font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <h3 style="font-family: Arial, sans-serif; margin-bottom: 8px;">Monthly &amp; Yearly Summary Report (FY ${fiscalYear} - ${viewMode.toUpperCase()})</h3>
-          <table>
-            <thead>
-              <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-            </thead>
-            <tbody>
-              ${excelRows}
-              ${grandTotalRow}
-            </tbody>
-          </table>
-        </body>
-        </html>
-      `;
+      // Strict Chronological Sort (ASC - Oldest to Newest)
+      exportRecords.sort((a, b) => {
+        const d1 = a.date || '';
+        const d2 = b.date || '';
+        if (d1 !== d2) return d1.localeCompare(d2);
+        const s1 = (a.shift || '').toLowerCase();
+        const s2 = (b.shift || '').toLowerCase();
+        if (s1 === 'day' && s2 !== 'day') return -1;
+        if (s1 !== 'day' && s2 === 'day') return 1;
+        return s1.localeCompare(s2);
+      });
 
-      const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const products = res.columns?.products || columnsMeta.products || [];
+      const payments = res.columns?.payments || columnsMeta.payments || [];
+      const vehicles = res.columns?.vehicles || columnsMeta.vehicles || [];
+
+      // Build header definitions with colors matching Master FY 25-26.xlsx
+      const headerCols: { label: string; bg: string; color: string; width: number }[] = [];
+      headerCols.push({ label: 'Date', bg: '#D9D9D9', color: '#000000', width: 95 });
+      headerCols.push({ label: 'Shift', bg: '#D9D9D9', color: '#000000', width: 70 });
+
+      products.forEach(p => {
+        headerCols.push({ label: `${p.name} Qty.`, bg: '#F8CBAD', color: '#000000', width: 95 });
+        headerCols.push({ label: 'Amount', bg: '#F8CBAD', color: '#000000', width: 105 });
+      });
+
+      headerCols.push({ label: 'Total Sales', bg: '#FFFF00', color: '#000000', width: 115 });
+
+      payments.forEach(pay => {
+        headerCols.push({ label: pay.name, bg: '#BDD7EE', color: '#000000', width: 95 });
+      });
+
+      headerCols.push({ label: 'Total Online', bg: '#9BC2E6', color: '#000000', width: 110 });
+      headerCols.push({ label: 'Credit Sales', bg: '#D5A6BD', color: '#000000', width: 100 });
+
+      vehicles.forEach(v => {
+        headerCols.push({ label: v.name, bg: '#FFF2CC', color: '#000000', width: 90 });
+      });
+      headerCols.push({ label: 'Total Consumption', bg: '#FFE699', color: '#000000', width: 115 });
+      headerCols.push({ label: 'Net Cash Sales', bg: '#C6E0B4', color: '#000000', width: 115 });
+      headerCols.push({ label: 'Employee Deposit', bg: '#E2EFDA', color: '#000000', width: 115 });
+      headerCols.push({ label: 'Final Challan', bg: '#E2EFDA', color: '#000000', width: 95 });
+      headerCols.push({ label: 'Difference', bg: '#F8CBAD', color: '#000000', width: 95 });
+
+      const totalColSpan = headerCols.length;
+
+      const formatCellNum = (v: any) => {
+        if (v === undefined || v === null || v === '' || Number(v) === 0 || isNaN(Number(v))) {
+          return '-';
+        }
+        const num = Number(v);
+        if (num < 0) {
+          return `(${Math.abs(num).toFixed(2)})`;
+        }
+        return num.toFixed(2);
+      };
+
+      const formatRawNum = (v: any) => {
+        if (v === undefined || v === null || isNaN(Number(v))) return 0;
+        return Number(v);
+      };
+
+      const getMonthLabelFromDate = (dStr: string) => {
+        if (!dStr) return '';
+        const parts = dStr.split('-');
+        if (parts.length >= 2) {
+          const yr = parts[0];
+          const m = parts[1];
+          const monthNamesMap: Record<string, string> = {
+            '01': 'January', '02': 'February', '03': 'March', '04': 'April',
+            '05': 'May', '06': 'June', '07': 'July', '08': 'August',
+            '09': 'September', '10': 'October', '11': 'November', '12': 'December'
+          };
+          const mName = monthNamesMap[m] || m;
+          return `${mName} ${yr}`;
+        }
+        return dStr;
+      };
+
+      // Group records into Month Groups
+      const monthGroups: { monthKey: string; monthLabel: string; rows: SummaryReportRow[] }[] = [];
+      if (viewMode === 'year') {
+        monthGroups.push({
+          monthKey: 'YEAR_SUMMARY',
+          monthLabel: `Financial Year ${fiscalYear} - Monthly Summary`,
+          rows: exportRecords
+        });
+      } else {
+        const groupMap = new Map<string, SummaryReportRow[]>();
+        exportRecords.forEach(r => {
+          const mKey = (r.date && r.date.length >= 7) ? r.date.substring(0, 7) : 'Other';
+          if (!groupMap.has(mKey)) groupMap.set(mKey, []);
+          groupMap.get(mKey)!.push(r);
+        });
+
+        // Ensure chronological order of month keys
+        const sortedMonthKeys = Array.from(groupMap.keys()).sort();
+        sortedMonthKeys.forEach(mKey => {
+          const groupRows = groupMap.get(mKey)!;
+          const mLabel = getMonthLabelFromDate(mKey);
+          monthGroups.push({
+            monthKey: mKey,
+            monthLabel: mLabel,
+            rows: groupRows
+          });
+        });
+      }
+
+      if (format === 'excel') {
+        let excelBodyHtml = '';
+
+        monthGroups.forEach((grp, grpIdx) => {
+          // 1. Month Header Banner (Bright Yellow)
+          excelBodyHtml += `
+            <tr style="height: 28px;">
+              <td colspan="${totalColSpan}" style="background-color: #FFFF00; color: #000000; font-weight: bold; font-size: 11pt; padding: 6px 10px; border: 1.5pt solid #000000; text-align: left;">
+                Month: ${grp.monthLabel}
+              </td>
+            </tr>
+          `;
+
+          // 2. 26-Column Header Row with distinct group colors matching Excel Sheet
+          excelBodyHtml += `
+            <tr style="height: 25px;">
+              ${headerCols.map(c => `<th style="background-color: ${c.bg}; color: ${c.color}; font-weight: bold; border: 0.5pt solid #7F7F7F; padding: 4px 6px; text-align: center; font-size: 9pt; width: ${c.width}px;">${c.label}</th>`).join('')}
+            </tr>
+          `;
+
+          // 3. Shift/Day Data Rows with per-group odd/even alternating colors (Row 1 colored, Row 2 clean #FFFFFF)
+          const monthSubtotal: Record<string, number> = {};
+
+          grp.rows.forEach((r, rIdx) => {
+            const rowCells: string[] = [];
+            // 1st row (rIdx % 2 === 0) applies the light color of each column group
+            // 2nd row (rIdx % 2 === 1) is clean non-colored pure white (#FFFFFF)
+            const isColored = rIdx % 2 === 0;
+
+            const dateBg = isColored ? '#F2F2F2' : '#FFFFFF';
+            const fuelBg = isColored ? '#FCE4D6' : '#FFFFFF';
+            const salesBg = isColored ? '#FFF2CC' : '#FFFFFF';
+            const onlineBg = isColored ? '#DDEBF7' : '#FFFFFF';
+            const totOnlineBg = isColored ? '#BDD7EE' : '#FFFFFF';
+            const creditBg = isColored ? '#EAD1DC' : '#FFFFFF';
+            const fleetBg = isColored ? '#FFF2CC' : '#FFFFFF';
+            const totConsBg = isColored ? '#FFE699' : '#FFFFFF';
+            const netCashBg = isColored ? '#C6E0B4' : '#FFFFFF';
+            const depositBg = isColored ? '#E2EFDA' : '#FFFFFF';
+            const diffBg = isColored ? '#FCE4D6' : '#FFFFFF';
+
+            // Date & Shift
+            rowCells.push(`<td style="background-color: ${dateBg}; border: 0.5pt solid #D9D9D9; text-align: center; mso-number-format:'\\@';">${formatDateDisplay(r.date, r)}</td>`);
+            rowCells.push(`<td style="background-color: ${dateBg}; border: 0.5pt solid #D9D9D9; text-align: center;">${r.shift || ''}</td>`);
+
+            // Products (Petrol / Diesel Qty & Amount)
+            products.forEach(p => {
+              const qVal = r[p.qtyKey];
+              const aVal = r[p.amountKey];
+              monthSubtotal[p.qtyKey] = (monthSubtotal[p.qtyKey] || 0) + formatRawNum(qVal);
+              monthSubtotal[p.amountKey] = (monthSubtotal[p.amountKey] || 0) + formatRawNum(aVal);
+
+              rowCells.push(`<td class="${formatCellNum(qVal) === '-' ? 'center' : 'num'}" style="background-color: ${fuelBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(qVal)}</td>`);
+              rowCells.push(`<td class="${formatCellNum(aVal) === '-' ? 'center' : 'num'}" style="background-color: ${fuelBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(aVal)}</td>`);
+            });
+
+            // Total Sales
+            monthSubtotal['totalSales'] = (monthSubtotal['totalSales'] || 0) + formatRawNum(r.totalSales);
+            rowCells.push(`<td class="${formatCellNum(r.totalSales) === '-' ? 'center' : 'num'} font-bold" style="background-color: ${salesBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.totalSales)}</td>`);
+
+            // Payments
+            payments.forEach(pay => {
+              const pVal = r[pay.key];
+              monthSubtotal[pay.key] = (monthSubtotal[pay.key] || 0) + formatRawNum(pVal);
+              rowCells.push(`<td class="${formatCellNum(pVal) === '-' ? 'center' : 'num'}" style="background-color: ${onlineBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(pVal)}</td>`);
+            });
+
+            // Total Online & Credit Sales
+            monthSubtotal['totalOnline'] = (monthSubtotal['totalOnline'] || 0) + formatRawNum(r.totalOnline);
+            monthSubtotal['creditSales'] = (monthSubtotal['creditSales'] || 0) + formatRawNum(r.creditSales);
+            rowCells.push(`<td class="${formatCellNum(r.totalOnline) === '-' ? 'center' : 'num'} font-bold" style="background-color: ${totOnlineBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.totalOnline)}</td>`);
+            rowCells.push(`<td class="${formatCellNum(r.creditSales) === '-' ? 'center' : 'num'}" style="background-color: ${creditBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.creditSales)}</td>`);
+
+            // Vehicles
+            vehicles.forEach(v => {
+              const vVal = r[v.key];
+              monthSubtotal[v.key] = (monthSubtotal[v.key] || 0) + formatRawNum(vVal);
+              rowCells.push(`<td class="${formatCellNum(vVal) === '-' ? 'center' : 'num'}" style="background-color: ${fleetBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(vVal)}</td>`);
+            });
+
+            // Total Consumption, Net Cash, Deposits, Challan, Diff
+            monthSubtotal['totalConsumption'] = (monthSubtotal['totalConsumption'] || 0) + formatRawNum(r.totalConsumption);
+            monthSubtotal['netCashSales'] = (monthSubtotal['netCashSales'] || 0) + formatRawNum(r.netCashSales);
+            monthSubtotal['employeeDeposit'] = (monthSubtotal['employeeDeposit'] || 0) + formatRawNum(r.employeeDeposit);
+            monthSubtotal['finalChallan'] = (monthSubtotal['finalChallan'] || 0) + formatRawNum(r.finalChallan);
+            monthSubtotal['difference'] = (monthSubtotal['difference'] || 0) + formatRawNum(r.difference);
+
+            rowCells.push(`<td class="${formatCellNum(r.totalConsumption) === '-' ? 'center' : 'num'} font-bold" style="background-color: ${totConsBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.totalConsumption)}</td>`);
+            rowCells.push(`<td class="${formatCellNum(r.netCashSales) === '-' ? 'center' : 'num'} font-bold" style="background-color: ${netCashBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.netCashSales)}</td>`);
+            rowCells.push(`<td class="${formatCellNum(r.employeeDeposit) === '-' ? 'center' : 'num'}" style="background-color: ${depositBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.employeeDeposit)}</td>`);
+            rowCells.push(`<td class="${formatCellNum(r.finalChallan) === '-' ? 'center' : 'num'}" style="background-color: ${depositBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.finalChallan)}</td>`);
+            rowCells.push(`<td class="${formatCellNum(r.difference) === '-' ? 'center' : 'num'} font-bold" style="background-color: ${diffBg}; border: 0.5pt solid #D9D9D9;">${formatCellNum(r.difference)}</td>`);
+
+            excelBodyHtml += `<tr>${rowCells.join('')}</tr>`;
+          });
+
+          // 4. Month Subtotal Row with matching group colors
+          if (viewMode !== 'year') {
+            const subCells: string[] = [
+              `<td colspan="2" style="background-color: #D9D9D9; font-weight: bold; border: 1pt solid #7F7F7F; text-align: center;">Month Total (${grp.monthLabel})</td>`
+            ];
+
+            products.forEach(p => {
+              subCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal[p.qtyKey])}</td>`);
+              subCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal[p.amountKey])}</td>`);
+            });
+
+            subCells.push(`<td class="num font-bold" style="background-color: #FFFF00; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['totalSales'])}</td>`);
+
+            payments.forEach(pay => {
+              subCells.push(`<td class="num font-bold" style="background-color: #BDD7EE; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal[pay.key])}</td>`);
+            });
+
+            subCells.push(`<td class="num font-bold" style="background-color: #9BC2E6; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['totalOnline'])}</td>`);
+            subCells.push(`<td class="num font-bold" style="background-color: #D5A6BD; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['creditSales'])}</td>`);
+
+            vehicles.forEach(v => {
+              subCells.push(`<td class="num font-bold" style="background-color: #FFF2CC; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal[v.key])}</td>`);
+            });
+
+            subCells.push(`<td class="num font-bold" style="background-color: #FFE699; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['totalConsumption'])}</td>`);
+            subCells.push(`<td class="num font-bold" style="background-color: #C6E0B4; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['netCashSales'])}</td>`);
+            subCells.push(`<td class="num font-bold" style="background-color: #E2EFDA; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['employeeDeposit'])}</td>`);
+            subCells.push(`<td class="num font-bold" style="background-color: #E2EFDA; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['finalChallan'])}</td>`);
+            subCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border: 1pt solid #7F7F7F;">${formatCellNum(monthSubtotal['difference'])}</td>`);
+
+            excelBodyHtml += `<tr style="height: 25px;">${subCells.join('')}</tr>`;
+          }
+
+          // 5. Blank Separator Row (Gap between months as in Excel)
+          if (grpIdx < monthGroups.length - 1) {
+            excelBodyHtml += `
+              <tr style="height: 18px; border: none; background-color: #FFFFFF;">
+                <td colspan="${totalColSpan}" style="border: none; background-color: #FFFFFF; height: 18px;">&nbsp;</td>
+              </tr>
+            `;
+          }
+        });
+
+        // 6. Overall Grand Total Row with full Excel palette
+        if (exportGrand) {
+          const grandCells: string[] = [
+            `<td colspan="2" style="background-color: #D9D9D9; font-weight: bold; font-size: 10pt; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; text-align: center; color: #000000;">GRAND TOTAL (FY ${fiscalYear})</td>`
+          ];
+
+          products.forEach(p => {
+            grandCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand[p.qtyKey] ?? exportGrand.petrolQty)}</td>`);
+            grandCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand[p.amountKey] ?? exportGrand.petrolAmount)}</td>`);
+          });
+
+          grandCells.push(`<td class="num font-bold" style="background-color: #FFFF00; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.totalSales)}</td>`);
+
+          payments.forEach(pay => {
+            grandCells.push(`<td class="num font-bold" style="background-color: #BDD7EE; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand[pay.key])}</td>`);
+          });
+
+          grandCells.push(`<td class="num font-bold" style="background-color: #9BC2E6; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.totalOnline)}</td>`);
+          grandCells.push(`<td class="num font-bold" style="background-color: #D5A6BD; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.creditSales)}</td>`);
+
+          vehicles.forEach(v => {
+            grandCells.push(`<td class="num font-bold" style="background-color: #FFF2CC; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand[v.key])}</td>`);
+          });
+
+          grandCells.push(`<td class="num font-bold" style="background-color: #FFE699; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.totalConsumption)}</td>`);
+          grandCells.push(`<td class="num font-bold" style="background-color: #C6E0B4; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.netCashSales)}</td>`);
+          grandCells.push(`<td class="num font-bold" style="background-color: #E2EFDA; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.employeeDeposit)}</td>`);
+          grandCells.push(`<td class="num font-bold" style="background-color: #E2EFDA; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.finalChallan)}</td>`);
+          grandCells.push(`<td class="num font-bold" style="background-color: #F8CBAD; border-top: 1.5pt solid #000000; border-bottom: 2pt double #000000; color: #000000;">${formatCellNum(exportGrand.difference)}</td>`);
+
+          excelBodyHtml += `
+            <tr style="height: 14px; border: none; background-color: #FFFFFF;"><td colspan="${totalColSpan}" style="border: none; height: 14px;">&nbsp;</td></tr>
+            <tr style="height: 28px;">${grandCells.join('')}</tr>
+          `;
+        }
+
+        const excelHtml = `
+          <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+          <head>
+            <!--[if gte mso 9]><xml>
+              <x:ExcelWorkbook>
+                <x:ExcelWorksheets>
+                  <x:ExcelWorksheet>
+                    <x:Name>Summary</x:Name>
+                    <x:WorksheetOptions>
+                      <x:DisplayGridlines/>
+                      <x:FreezePanes/>
+                      <x:FrozenNoSplit/>
+                      <x:SplitRow>2</x:SplitRow>
+                      <x:TopRowBottomPane>2</x:TopRowBottomPane>
+                      <x:SplitColumn>2</x:SplitColumn>
+                      <x:LeftColumnRightPane>2</x:LeftColumnRightPane>
+                      <x:ActivePane>0</x:ActivePane>
+                    </x:WorksheetOptions>
+                  </x:ExcelWorksheet>
+                </x:ExcelWorksheets>
+              </x:ExcelWorkbook>
+            </xml><![endif]-->
+            <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+            <style>
+              table { border-collapse: collapse; font-family: Arial, Calibri, sans-serif; font-size: 9pt; }
+              th { border: 0.5pt solid #7F7F7F; padding: 4px 6px; font-weight: bold; text-align: center; }
+              td { border: 0.5pt solid #D9D9D9; padding: 4px 6px; }
+              .num { mso-number-format:"\\_\\(\\#\\,\\#\\#0\\.00\\_\\)\\;\\(\\#\\,\\#\\#0\\.00\\)\\;\\_\\(\"-\"??\\_\\)\\;\\_\\(\\@\\_\\)"; text-align: right; }
+              .center { text-align: center; }
+              .font-bold { font-weight: bold; }
+            </style>
+          </head>
+          <body>
+            <table>
+              <tbody>
+                ${excelBodyHtml}
+              </tbody>
+            </table>
+          </body>
+          </html>
+        `;
+
+        const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Summary_Report_${fiscalYear}_${viewMode}_All.xls`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success(`Exported all ${exportRecords.length} filtered records to Excel successfully!`);
+        return;
+      }
+
+      // ── CSV Export ──
+      const csvLines: string[] = [];
+      const csvHeaderLine = headerCols.map(h => `"${h.label}"`).join(',');
+
+      monthGroups.forEach(grp => {
+        csvLines.push(`"Month: ${grp.monthLabel}"`);
+        csvLines.push(csvHeaderLine);
+
+        const monthSubtotal: Record<string, number> = {};
+
+        grp.rows.forEach(r => {
+          const row: (string | number)[] = [
+            `"${formatDateDisplay(r.date, r)}"`,
+            `"${r.shift || ''}"`
+          ];
+
+          products.forEach(p => {
+            const q = formatRawNum(r[p.qtyKey]);
+            const a = formatRawNum(r[p.amountKey]);
+            monthSubtotal[p.qtyKey] = (monthSubtotal[p.qtyKey] || 0) + q;
+            monthSubtotal[p.amountKey] = (monthSubtotal[p.amountKey] || 0) + a;
+            row.push(q);
+            row.push(a);
+          });
+
+          const ts = formatRawNum(r.totalSales);
+          monthSubtotal['totalSales'] = (monthSubtotal['totalSales'] || 0) + ts;
+          row.push(ts);
+
+          payments.forEach(pay => {
+            const py = formatRawNum(r[pay.key]);
+            monthSubtotal[pay.key] = (monthSubtotal[pay.key] || 0) + py;
+            row.push(py);
+          });
+
+          const onl = formatRawNum(r.totalOnline);
+          const crd = formatRawNum(r.creditSales);
+          monthSubtotal['totalOnline'] = (monthSubtotal['totalOnline'] || 0) + onl;
+          monthSubtotal['creditSales'] = (monthSubtotal['creditSales'] || 0) + crd;
+          row.push(onl);
+          row.push(crd);
+
+          vehicles.forEach(v => {
+            const vh = formatRawNum(r[v.key]);
+            monthSubtotal[v.key] = (monthSubtotal[v.key] || 0) + vh;
+            row.push(vh);
+          });
+
+          const tc = formatRawNum(r.totalConsumption);
+          const nc = formatRawNum(r.netCashSales);
+          const ed = formatRawNum(r.employeeDeposit);
+          const fc = formatRawNum(r.finalChallan);
+          const df = formatRawNum(r.difference);
+
+          monthSubtotal['totalConsumption'] = (monthSubtotal['totalConsumption'] || 0) + tc;
+          monthSubtotal['netCashSales'] = (monthSubtotal['netCashSales'] || 0) + nc;
+          monthSubtotal['employeeDeposit'] = (monthSubtotal['employeeDeposit'] || 0) + ed;
+          monthSubtotal['finalChallan'] = (monthSubtotal['finalChallan'] || 0) + fc;
+          monthSubtotal['difference'] = (monthSubtotal['difference'] || 0) + df;
+
+          row.push(tc);
+          row.push(nc);
+          row.push(ed);
+          row.push(fc);
+          row.push(df);
+
+          csvLines.push(row.join(','));
+        });
+
+        if (viewMode !== 'year') {
+          const subRow: (string | number)[] = [
+            `"Month Total (${grp.monthLabel})"`,
+            '""'
+          ];
+          products.forEach(p => {
+            subRow.push(monthSubtotal[p.qtyKey] || 0);
+            subRow.push(monthSubtotal[p.amountKey] || 0);
+          });
+          subRow.push(monthSubtotal['totalSales'] || 0);
+          payments.forEach(pay => subRow.push(monthSubtotal[pay.key] || 0));
+          subRow.push(monthSubtotal['totalOnline'] || 0);
+          subRow.push(monthSubtotal['creditSales'] || 0);
+          vehicles.forEach(v => subRow.push(monthSubtotal[v.key] || 0));
+          subRow.push(monthSubtotal['totalConsumption'] || 0);
+          subRow.push(monthSubtotal['netCashSales'] || 0);
+          subRow.push(monthSubtotal['employeeDeposit'] || 0);
+          subRow.push(monthSubtotal['finalChallan'] || 0);
+          subRow.push(monthSubtotal['difference'] || 0);
+          csvLines.push(subRow.join(','));
+        }
+
+        csvLines.push(''); // Blank line separator between months
+      });
+
+      // Grand Total CSV line
+      if (exportGrand) {
+        const grandRow: (string | number)[] = [
+          `"GRAND TOTAL (FY ${fiscalYear})"`,
+          '""'
+        ];
+        products.forEach(p => {
+          grandRow.push(exportGrand[p.qtyKey] ?? exportGrand.petrolQty ?? 0);
+          grandRow.push(exportGrand[p.amountKey] ?? exportGrand.petrolAmount ?? 0);
+        });
+        grandRow.push(exportGrand.totalSales ?? 0);
+        payments.forEach(pay => grandRow.push(exportGrand[pay.key] ?? 0));
+        grandRow.push(exportGrand.totalOnline ?? 0);
+        grandRow.push(exportGrand.creditSales ?? 0);
+        vehicles.forEach(v => grandRow.push(exportGrand[v.key] ?? 0));
+        grandRow.push(exportGrand.totalConsumption ?? 0);
+        grandRow.push(exportGrand.netCashSales ?? 0);
+        grandRow.push(exportGrand.employeeDeposit ?? 0);
+        grandRow.push(exportGrand.finalChallan ?? 0);
+        grandRow.push(exportGrand.difference ?? 0);
+        csvLines.push(grandRow.join(','));
+      }
+
+      const csvContent = '\uFEFF' + csvLines.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);
-      link.setAttribute('download', `Summary_Report_${fiscalYear}_${viewMode}.xls`);
+      link.setAttribute('download', `Summary_Report_${fiscalYear}_${viewMode}_All.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      toast.success(`Exported ${records.length} records to Excel successfully!`);
-      return;
+      toast.success(`Exported all ${exportRecords.length} filtered records to CSV successfully!`);
+    } catch (err: any) {
+      console.error('Export error:', err);
+      toast.error('Export failed', { description: err.message });
+    } finally {
+      setExporting(false);
     }
-
-    // CSV Export
-    const csvRows = records.map(r => [
-      `"${formatDateDisplay(r.date, r)}"`,
-      `"${r.shift || ''}"`,
-      r.petrolQty ?? 0,
-      r.petrolAmount ?? 0,
-      r.dieselQty ?? 0,
-      r.dieselAmount ?? 0,
-      r.totalSales ?? 0,
-      r.phonePe ?? 0,
-      r.bpclAlp ?? 0,
-      r.ufil ?? 0,
-      r.hdfcSwap ?? 0,
-      r.fino ?? 0,
-      r.rtgs ?? 0,
-      r.totalOnline ?? 0,
-      r.creditSales ?? 0,
-      r.nios ?? 0,
-      r.legender ?? 0,
-      r.seltos ?? 0,
-      r.scorpio ?? 0,
-      r.tanker ?? 0,
-      r.dgSet ?? 0,
-      r.totalConsumption ?? 0,
-      r.netCashSales ?? 0,
-      r.employeeDeposit ?? 0,
-      r.finalChallan ?? 0,
-      r.difference ?? 0
-    ]);
-
-    if (grandTotal) {
-      csvRows.push([
-        '"GRAND TOTAL"',
-        '""',
-        grandTotal.petrolQty ?? 0,
-        grandTotal.petrolAmount ?? 0,
-        grandTotal.dieselQty ?? 0,
-        grandTotal.dieselAmount ?? 0,
-        grandTotal.totalSales ?? 0,
-        grandTotal.phonePe ?? 0,
-        grandTotal.bpclAlp ?? 0,
-        grandTotal.ufil ?? 0,
-        grandTotal.hdfcSwap ?? 0,
-        grandTotal.fino ?? 0,
-        grandTotal.rtgs ?? 0,
-        grandTotal.totalOnline ?? 0,
-        grandTotal.creditSales ?? 0,
-        grandTotal.nios ?? 0,
-        grandTotal.legender ?? 0,
-        grandTotal.seltos ?? 0,
-        grandTotal.scorpio ?? 0,
-        grandTotal.tanker ?? 0,
-        grandTotal.dgSet ?? 0,
-        grandTotal.totalConsumption ?? 0,
-        grandTotal.netCashSales ?? 0,
-        grandTotal.employeeDeposit ?? 0,
-        grandTotal.finalChallan ?? 0,
-        grandTotal.difference ?? 0
-      ]);
-    }
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.map(h => `"${h}"`).join(','), ...csvRows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Summary_Report_${fiscalYear}_${viewMode}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success(`Exported ${records.length} records to CSV successfully!`);
   };
 
+  const petrolProd = columnsMeta.products.find(p => p.name.toLowerCase().includes('petrol')) || columnsMeta.products[0];
+  const dieselProd = columnsMeta.products.find(p => p.name.toLowerCase().includes('diesel')) || columnsMeta.products[1];
+
   return (
-    <div className="p-8">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 space-y-6 max-w-[1800px] mx-auto">
+      {/* ── Page Header ── */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="mb-2">Monthly &amp; Yearly Summary Report</h1>
-          <p className="text-muted-foreground">
-            Multi-period summary of fuel sales, digital collections, credit, and cash reconciliation
+          <p className="text-muted-foreground text-sm">
+            Comprehensive fuel station ledger with dynamic products, digital settlements, credit sales, and vehicle own-use consumption
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
+            size="sm"
             onClick={loadData}
             disabled={loading}
-            className="gap-2"
+            className="h-9 gap-1.5"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Download className="w-4 h-4" />
-                Export
+              <Button size="sm" disabled={exporting} className="h-9 gap-1.5 bg-primary text-primary-foreground">
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {exporting ? 'Exporting...' : 'Export'}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => handleExport('csv')} className="cursor-pointer text-xs">
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={() => handleExport('csv')} className="cursor-pointer text-xs" disabled={exporting}>
                 <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export to CSV
+                Export to CSV (All Filtered)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('excel')} className="cursor-pointer text-xs">
+              <DropdownMenuItem onClick={() => handleExport('excel')} className="cursor-pointer text-xs" disabled={exporting}>
                 <FileDown className="w-4 h-4 mr-2 text-muted-foreground" />
-                Export to Excel
+                Export to Excel (All Filtered)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {/* ── Stats Cards (Credit Sales Style: 8 Comprehensive Metric Cards) ── */}
+      {/* ── Stats Cards (Dynamic Master Product Names) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {/* 1. Total Gross Sales */}
         <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
@@ -529,35 +853,39 @@ export function MonthlyYearlySummaryReport() {
           </div>
         </div>
 
-        {/* 2. Petrol MS Sales & Volume */}
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-500">
-            <Droplet className="w-5 h-5" />
+        {/* 2. Product 1 (e.g. Petrol E20) Sales & Volume */}
+        {petrolProd && (
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-500">
+              <Droplet className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">
+                {formatCurrency(grandTotal[petrolProd.amountKey] ?? grandTotal.petrolAmount)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {petrolProd.name} ({formatLitres(grandTotal[petrolProd.qtyKey] ?? grandTotal.petrolQty)})
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">
-              {formatCurrency(grandTotal.petrolAmount)}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Petrol MS ({formatLitres(grandTotal.petrolQty)})
-            </p>
-          </div>
-        </div>
+        )}
 
-        {/* 3. Diesel HSD Sales & Volume */}
-        <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
-          <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500">
-            <Fuel className="w-5 h-5" />
+        {/* 3. Product 2 (e.g. Diesel) Sales & Volume */}
+        {dieselProd && (
+          <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
+            <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+              <Fuel className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xl font-bold font-mono">
+                {formatCurrency(grandTotal[dieselProd.amountKey] ?? grandTotal.dieselAmount)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {dieselProd.name} ({formatLitres(grandTotal[dieselProd.qtyKey] ?? grandTotal.dieselQty)})
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold font-mono">
-              {formatCurrency(grandTotal.dieselAmount)}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Diesel HSD ({formatLitres(grandTotal.dieselQty)})
-            </p>
-          </div>
-        </div>
+        )}
 
         {/* 4. Digital / Online Collections */}
         <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
@@ -594,11 +922,11 @@ export function MonthlyYearlySummaryReport() {
             <p className="text-xl font-bold font-mono">
               {formatCurrency(grandTotal.totalConsumption)}
             </p>
-            <p className="text-xs text-muted-foreground">Own Use</p>
+            <p className="text-xs text-muted-foreground">Own Use Consumption</p>
           </div>
         </div>
 
-        {/* 7. Settlements */}
+        {/* 7. Settlements / Net Cash */}
         <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
           <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-500">
             <Banknote className="w-5 h-5" />
@@ -607,7 +935,7 @@ export function MonthlyYearlySummaryReport() {
             <p className="text-xl font-bold font-mono">
               {formatCurrency(grandTotal.netCashSales)}
             </p>
-            <p className="text-xs text-muted-foreground">Settlements</p>
+            <p className="text-xs text-muted-foreground">Net Cash Sales</p>
           </div>
         </div>
 
@@ -625,7 +953,7 @@ export function MonthlyYearlySummaryReport() {
         </div>
       </div>
 
-      {/* ── Filter / Search Bar (Credit Sales Style) ── */}
+      {/* ── Filter / Search Bar ── */}
       <div className="bg-card p-4 rounded-lg border border-border mb-6 flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
           {/* Search */}
@@ -670,7 +998,15 @@ export function MonthlyYearlySummaryReport() {
           {/* Month Filter */}
           {viewMode !== 'year' && (
             <div className="w-40">
-              <Select value={month} onValueChange={v => { setMonth(v); setCurrentPage(0); }}>
+              <Select
+                value={month}
+                onValueChange={v => {
+                  setMonth(v);
+                  setFromDate('');
+                  setToDate('');
+                  setCurrentPage(0);
+                }}
+              >
                 <SelectTrigger className="h-9 text-sm">
                   <SelectValue placeholder="Month" />
                 </SelectTrigger>
@@ -699,9 +1035,9 @@ export function MonthlyYearlySummaryReport() {
 
             {isMpdDropdownOpen && (
               <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setIsMpdDropdownOpen(false)} 
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsMpdDropdownOpen(false)}
                 />
                 <div className="absolute left-0 top-full mt-1.5 z-50 w-48 rounded-md border border-border bg-popover p-2 shadow-lg bg-background space-y-1">
                   {/* Select All Checkbox */}
@@ -756,10 +1092,23 @@ export function MonthlyYearlySummaryReport() {
               className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
           </div>
+
+          {/* Reset Date Range Button */}
+          {(fromDate || toDate) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => { setFromDate(''); setToDate(''); setCurrentPage(0); }}
+              className="h-9 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Reset Dates
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* ── Main Table (Credit Sales Style) ── */}
+      {/* ── Main Table (Dynamic Master Headers) ── */}
       <div className="bg-card rounded-lg border border-border overflow-hidden">
         <div className="overflow-x-auto">
           {loading ? (
@@ -780,7 +1129,7 @@ export function MonthlyYearlySummaryReport() {
               <thead className="bg-muted/50 border-b border-border">
                 <tr>
                   <th className="w-12 text-left p-3 font-medium text-muted-foreground whitespace-nowrap">S.No</th>
-                  <th 
+                  <th
                     className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
                     onClick={() => handleSortToggle('date')}
                   >
@@ -792,7 +1141,7 @@ export function MonthlyYearlySummaryReport() {
                   </th>
 
                   {viewMode !== 'year' && (
-                    <th 
+                    <th
                       className="text-left p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
                       onClick={() => handleSortToggle('shift')}
                     >
@@ -804,48 +1153,32 @@ export function MonthlyYearlySummaryReport() {
                     </th>
                   )}
 
-                  {/* Petrol MS */}
-                  <th 
-                    className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
-                    onClick={() => handleSortToggle('petrolQty')}
-                  >
-                    <div className="flex items-center gap-1 justify-end">
-                      Petrol Qty.
-                      <SortIcon field="petrolQty" />
-                    </div>
-                  </th>
-                  <th 
-                    className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
-                    onClick={() => handleSortToggle('petrolAmount')}
-                  >
-                    <div className="flex items-center gap-1 justify-end">
-                      Amount (₹)
-                      <SortIcon field="petrolAmount" />
-                    </div>
-                  </th>
-
-                  {/* Diesel HSD */}
-                  <th 
-                    className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
-                    onClick={() => handleSortToggle('dieselQty')}
-                  >
-                    <div className="flex items-center gap-1 justify-end">
-                      Diesel Qty.
-                      <SortIcon field="dieselQty" />
-                    </div>
-                  </th>
-                  <th 
-                    className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
-                    onClick={() => handleSortToggle('dieselAmount')}
-                  >
-                    <div className="flex items-center gap-1 justify-end">
-                      Amount (₹)
-                      <SortIcon field="dieselAmount" />
-                    </div>
-                  </th>
+                  {/* Dynamic Fuel Products from Master Data (e.g. Petrol E20, Diesel) */}
+                  {columnsMeta.products.map(prod => (
+                    <React.Fragment key={prod.key}>
+                      <th
+                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                        onClick={() => handleSortToggle(prod.qtyKey)}
+                      >
+                        <div className="flex items-center gap-1 justify-end">
+                          {prod.name} Qty.
+                          <SortIcon field={prod.qtyKey} />
+                        </div>
+                      </th>
+                      <th
+                        className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                        onClick={() => handleSortToggle(prod.amountKey)}
+                      >
+                        <div className="flex items-center gap-1 justify-end">
+                          Amount (₹)
+                          <SortIcon field={prod.amountKey} />
+                        </div>
+                      </th>
+                    </React.Fragment>
+                  ))}
 
                   {/* Total Sales */}
-                  <th 
+                  <th
                     className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40"
                     onClick={() => handleSortToggle('totalSales')}
                   >
@@ -855,26 +1188,23 @@ export function MonthlyYearlySummaryReport() {
                     </div>
                   </th>
 
-                  {/* Digital Online Breakdown */}
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('phonePe')}>
-                    <div className="flex items-center gap-1 justify-end">Phone Pe<SortIcon field="phonePe" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('bpclAlp')}>
-                    <div className="flex items-center gap-1 justify-end">BPCL/ALP<SortIcon field="bpclAlp" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('ufil')}>
-                    <div className="flex items-center gap-1 justify-end">UFIL<SortIcon field="ufil" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('hdfcSwap')}>
-                    <div className="flex items-center gap-1 justify-end">HDFC Swap<SortIcon field="hdfcSwap" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('fino')}>
-                    <div className="flex items-center gap-1 justify-end">Fino<SortIcon field="fino" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('rtgs')}>
-                    <div className="flex items-center gap-1 justify-end">RTGS<SortIcon field="rtgs" /></div>
-                  </th>
-                  <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40" onClick={() => handleSortToggle('totalOnline')}>
+                  {/* Dynamic Online Settlements from Master */}
+                  {columnsMeta.payments.map(pay => (
+                    <th
+                      key={pay.key}
+                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                      onClick={() => handleSortToggle(pay.key)}
+                    >
+                      <div className="flex items-center gap-1 justify-end">
+                        {pay.name}
+                        <SortIcon field={pay.key} />
+                      </div>
+                    </th>
+                  ))}
+                  <th
+                    className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40"
+                    onClick={() => handleSortToggle('totalOnline')}
+                  >
                     <div className="flex items-center gap-1 justify-end">Total Online<SortIcon field="totalOnline" /></div>
                   </th>
 
@@ -883,25 +1213,19 @@ export function MonthlyYearlySummaryReport() {
                     <div className="flex items-center gap-1 justify-end">Credit Sales<SortIcon field="creditSales" /></div>
                   </th>
 
-                  {/* Own Use Breakdown */}
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('nios')}>
-                    <div className="flex items-center gap-1 justify-end">Nios<SortIcon field="nios" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('legender')}>
-                    <div className="flex items-center gap-1 justify-end">Legender<SortIcon field="legender" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('seltos')}>
-                    <div className="flex items-center gap-1 justify-end">Seltos<SortIcon field="seltos" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('scorpio')}>
-                    <div className="flex items-center gap-1 justify-end">Scorpio<SortIcon field="scorpio" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('tanker')}>
-                    <div className="flex items-center gap-1 justify-end">Tanker<SortIcon field="tanker" /></div>
-                  </th>
-                  <th className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap" onClick={() => handleSortToggle('dgSet')}>
-                    <div className="flex items-center gap-1 justify-end">D.G.Set<SortIcon field="dgSet" /></div>
-                  </th>
+                  {/* Dynamic Vehicles from Master Data (Nios, Legender, Seltos, Scorpio, Tanker, D.G.Set) */}
+                  {columnsMeta.vehicles.map(veh => (
+                    <th
+                      key={veh.key}
+                      className="text-right p-3 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap"
+                      onClick={() => handleSortToggle(veh.key)}
+                    >
+                      <div className="flex items-center gap-1 justify-end">
+                        {veh.name}
+                        <SortIcon field={veh.key} />
+                      </div>
+                    </th>
+                  ))}
                   <th className="text-right p-3 font-bold text-foreground cursor-pointer hover:bg-muted/80 transition-colors select-none whitespace-nowrap bg-muted/40" onClick={() => handleSortToggle('totalConsumption')}>
                     <div className="flex items-center gap-1 justify-end">Total Consumption<SortIcon field="totalConsumption" /></div>
                   </th>
@@ -932,77 +1256,58 @@ export function MonthlyYearlySummaryReport() {
                     </td>
                     {viewMode !== 'year' && (
                       <td className="p-3 whitespace-nowrap">
-                        <Badge 
+                        <Badge
                           variant="outline"
                           className={
                             record.shift === 'Day'
                               ? 'border-amber-500/30 text-amber-600 bg-amber-500/10 text-xs px-1.5 py-0'
                               : record.shift === 'Night'
-                              ? 'border-indigo-500/30 text-indigo-600 bg-indigo-500/10 text-xs px-1.5 py-0'
-                              : 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10 text-xs px-1.5 py-0'
+                                ? 'border-indigo-500/30 text-indigo-600 bg-indigo-500/10 text-xs px-1.5 py-0'
+                                : 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10 text-xs px-1.5 py-0'
                           }
                         >
                           {record.shift}
                         </Badge>
                       </td>
                     )}
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatLitres(record.petrolQty)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
-                      {formatCurrency(record.petrolAmount)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatLitres(record.dieselQty)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
-                      {formatCurrency(record.dieselAmount)}
-                    </td>
+
+                    {/* Dynamic Fuel Products Cells */}
+                    {columnsMeta.products.map(prod => (
+                      <React.Fragment key={prod.key}>
+                        <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                          {formatLitres(record[prod.qtyKey] ?? (prod.name.toLowerCase().includes('petrol') ? record.petrolQty : record.dieselQty))}
+                        </td>
+                        <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
+                          {formatCurrency(record[prod.amountKey] ?? (prod.name.toLowerCase().includes('petrol') ? record.petrolAmount : record.dieselAmount))}
+                        </td>
+                      </React.Fragment>
+                    ))}
+
                     <td className="p-3 text-right font-bold text-foreground font-mono text-xs whitespace-nowrap bg-muted/20">
                       {formatCurrency(record.totalSales)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.phonePe)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.bpclAlp)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.ufil)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.hdfcSwap)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.fino)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.rtgs)}
-                    </td>
+
+                    {/* Dynamic Payments Cells */}
+                    {columnsMeta.payments.map(pay => (
+                      <td key={pay.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {formatCurrency(record[pay.key])}
+                      </td>
+                    ))}
+
                     <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20">
                       {formatCurrency(record.totalOnline)}
                     </td>
                     <td className="p-3 text-right font-mono text-xs whitespace-nowrap">
                       {formatCurrency(record.creditSales)}
                     </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.nios)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.legender)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.seltos)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.scorpio)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.tanker)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(record.dgSet)}
-                    </td>
+
+                    {/* Dynamic Vehicles Cells */}
+                    {columnsMeta.vehicles.map(veh => (
+                      <td key={veh.key} className="p-3 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {formatCurrency(record[veh.key])}
+                      </td>
+                    ))}
+
                     <td className="p-3 text-right font-semibold font-mono text-xs whitespace-nowrap bg-muted/20">
                       {formatCurrency(record.totalConsumption)}
                     </td>
@@ -1024,67 +1329,46 @@ export function MonthlyYearlySummaryReport() {
                 ))}
               </tbody>
               <tfoot className="bg-muted/30 border-t border-border text-xs font-medium">
+                {/* Page Total Row */}
                 <tr>
                   <td colSpan={viewMode === 'year' ? 2 : 3} className="p-3 text-left font-semibold">
                     Page Total ({records.length} records)
                   </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatLitres(records.reduce((s, r) => s + (r.petrolQty || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono">
-                    {formatCurrency(records.reduce((s, r) => s + (r.petrolAmount || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatLitres(records.reduce((s, r) => s + (r.dieselQty || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono">
-                    {formatCurrency(records.reduce((s, r) => s + (r.dieselAmount || 0), 0))}
-                  </td>
+
+                  {columnsMeta.products.map(prod => (
+                    <React.Fragment key={prod.key}>
+                      <td className="p-3 text-right font-mono text-muted-foreground">
+                        {formatLitres(records.reduce((s, r) => s + (r[prod.qtyKey] || 0), 0))}
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        {formatCurrency(records.reduce((s, r) => s + (r[prod.amountKey] || 0), 0))}
+                      </td>
+                    </React.Fragment>
+                  ))}
+
                   <td className="p-3 text-right font-mono font-bold text-foreground bg-muted/30">
                     {formatCurrency(records.reduce((s, r) => s + (r.totalSales || 0), 0))}
                   </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.phonePe || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.bpclAlp || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.ufil || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.hdfcSwap || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.fino || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.rtgs || 0), 0))}
-                  </td>
+
+                  {columnsMeta.payments.map(pay => (
+                    <td key={pay.key} className="p-3 text-right font-mono text-muted-foreground">
+                      {formatCurrency(records.reduce((s, r) => s + (r[pay.key] || 0), 0))}
+                    </td>
+                  ))}
+
                   <td className="p-3 text-right font-mono font-semibold bg-muted/30">
                     {formatCurrency(records.reduce((s, r) => s + (r.totalOnline || 0), 0))}
                   </td>
                   <td className="p-3 text-right font-mono">
                     {formatCurrency(records.reduce((s, r) => s + (r.creditSales || 0), 0))}
                   </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.nios || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.legender || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.seltos || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.scorpio || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.tanker || 0), 0))}
-                  </td>
-                  <td className="p-3 text-right font-mono text-muted-foreground">
-                    {formatCurrency(records.reduce((s, r) => s + (r.dgSet || 0), 0))}
-                  </td>
+
+                  {columnsMeta.vehicles.map(veh => (
+                    <td key={veh.key} className="p-3 text-right font-mono text-muted-foreground">
+                      {formatCurrency(records.reduce((s, r) => s + (r[veh.key] || 0), 0))}
+                    </td>
+                  ))}
+
                   <td className="p-3 text-right font-mono font-semibold bg-muted/30">
                     {formatCurrency(records.reduce((s, r) => s + (r.totalConsumption || 0), 0))}
                   </td>
@@ -1103,68 +1387,48 @@ export function MonthlyYearlySummaryReport() {
                     </span>
                   </td>
                 </tr>
+
+                {/* Overall Grand Total Row */}
                 {grandTotal && (
                   <tr className="bg-muted/50 border-t border-border font-bold">
                     <td colSpan={viewMode === 'year' ? 2 : 3} className="p-3 text-left font-bold text-foreground">
                       Overall Grand Total ({totalElements} {viewMode === 'year' ? 'Months' : 'Shifts'})
                     </td>
-                    <td className="p-3 text-right font-mono text-emerald-600">
-                      {formatLitres(grandTotal.petrolQty)}
-                    </td>
-                    <td className="p-3 text-right font-mono">
-                      {formatCurrency(grandTotal.petrolAmount)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-blue-600">
-                      {formatLitres(grandTotal.dieselQty)}
-                    </td>
-                    <td className="p-3 text-right font-mono">
-                      {formatCurrency(grandTotal.dieselAmount)}
-                    </td>
+
+                    {columnsMeta.products.map(prod => (
+                      <React.Fragment key={prod.key}>
+                        <td className="p-3 text-right font-mono text-emerald-600">
+                          {formatLitres(grandTotal[prod.qtyKey] ?? (prod.name.toLowerCase().includes('petrol') ? grandTotal.petrolQty : grandTotal.dieselQty))}
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          {formatCurrency(grandTotal[prod.amountKey] ?? (prod.name.toLowerCase().includes('petrol') ? grandTotal.petrolAmount : grandTotal.dieselAmount))}
+                        </td>
+                      </React.Fragment>
+                    ))}
+
                     <td className="p-3 text-right font-mono font-bold text-foreground bg-muted/40">
                       {formatCurrency(grandTotal.totalSales)}
                     </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.phonePe)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.bpclAlp)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.ufil)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.hdfcSwap)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.fino)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.rtgs)}
-                    </td>
+
+                    {columnsMeta.payments.map(pay => (
+                      <td key={pay.key} className="p-3 text-right font-mono text-muted-foreground">
+                        {formatCurrency(grandTotal[pay.key])}
+                      </td>
+                    ))}
+
                     <td className="p-3 text-right font-mono font-bold bg-muted/40">
                       {formatCurrency(grandTotal.totalOnline)}
                     </td>
                     <td className="p-3 text-right font-mono">
                       {formatCurrency(grandTotal.creditSales)}
                     </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.nios)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.legender)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.seltos)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.scorpio)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.tanker)}
-                    </td>
-                    <td className="p-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(grandTotal.dgSet)}
-                    </td>
+
+                    {columnsMeta.vehicles.map(veh => (
+                      <td key={veh.key} className="p-3 text-right font-mono text-muted-foreground">
+                        {formatCurrency(grandTotal[veh.key])}
+                      </td>
+                    ))}
+
                     <td className="p-3 text-right font-mono font-bold bg-muted/40">
                       {formatCurrency(grandTotal.totalConsumption)}
                     </td>
@@ -1189,55 +1453,61 @@ export function MonthlyYearlySummaryReport() {
           )}
         </div>
 
-        {/* ── Server-Side Pagination (Credit Sales Style) ── */}
-        {totalElements > 0 && (
-          <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, totalElements)} of {totalElements} entries
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Rows per page:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(0); }}
-                  className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={31}>31</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                  disabled={currentPage === 0 || loading}
-                  className="gap-1"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </Button>
-                <span className="text-sm font-medium px-2">
-                  Page {currentPage + 1} of {Math.max(1, totalPages)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={currentPage >= totalPages - 1 || loading}
-                  className="gap-1"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+        {/* ── Server-Side Pagination Bar ── */}
+        <div className="p-4 border-t border-border flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{records.length > 0 ? currentPage * pageSize + 1 : 0}</span> to <span className="font-semibold text-foreground">{Math.min((currentPage + 1) * pageSize, totalElements)}</span> of <span className="font-semibold text-foreground">{totalElements}</span> entries
+            </span>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Rows per page:</span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={v => { setPageSize(Number(v)); setCurrentPage(0); }}
+              >
+                <SelectTrigger className="h-8 w-20 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="31">31</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        )}
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+              disabled={currentPage === 0 || loading}
+              className="h-8 px-3 text-xs"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+              Previous
+            </Button>
+
+            <span className="text-xs text-muted-foreground px-2">
+              Page <span className="font-semibold text-foreground">{currentPage + 1}</span> of <span className="font-semibold text-foreground">{totalPages}</span>
+            </span>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage >= totalPages - 1 || loading}
+              className="h-8 px-3 text-xs"
+            >
+              Next
+              <ChevronRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

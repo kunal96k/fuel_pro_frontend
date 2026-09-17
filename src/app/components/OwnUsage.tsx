@@ -108,14 +108,19 @@ const PURPOSE_BADGE: Record<string, string> = {
   'Other': 'bg-slate-50/80 text-slate-600 border-slate-200',
 };
 
-/** Format vehicle plates to standard pattern (e.g. MH-67-63-4322) */
+/** Format vehicle identifier (preserves names like Tanker, D.G.Set, Nios, and standard plates) */
 function formatVehicleNumber(raw: string): string {
-  const clean = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  const g1 = clean.slice(0, 2);
-  const g2 = clean.slice(2, 4);
-  const g3 = clean.slice(4, 6);
-  const g4 = clean.slice(6, 10);
-  return [g1, g2, g3, g4].filter(g => g.length > 0).join('-');
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  const plateMatch = trimmed.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (/^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$/.test(plateMatch)) {
+    const g1 = plateMatch.slice(0, 2);
+    const g2 = plateMatch.slice(2, 4);
+    const g3 = plateMatch.length === 10 ? plateMatch.slice(4, 6) : plateMatch.slice(4, 5);
+    const g4 = plateMatch.slice(plateMatch.length - 4);
+    return `${g1}-${g2}-${g3}-${g4}`;
+  }
+  return trimmed;
 }
 
 // ─────────────────────────────────────────────────────────────

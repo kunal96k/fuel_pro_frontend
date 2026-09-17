@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight, Eye, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Pencil, Trash2, Car, Truck, Bike, Search, ArrowUpDown, ChevronLeft, ChevronRight, Eye, AlertTriangle, CheckCircle2, Loader2, Zap, Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,16 +9,20 @@ import { Checkbox } from './ui/checkbox';
 import { toast } from 'sonner';
 import { fetchVehicles, createVehicleApi, updateVehicleApi, deleteVehicleApi, Vehicle, formatDateToDMY, fetchProducts, Product, checkVehicleUnique } from '../services/api';
 
-
-
-/** Format vehicle plates to standard pattern (e.g. MH-67-63-4322) */
+/** Clean and format vehicle identifier (preserves names like Tanker, D.G.Set, Nios, and standard plates) */
 function formatVehicleNumber(raw: string): string {
-  const clean = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  const g1 = clean.slice(0, 2);
-  const g2 = clean.slice(2, 4);
-  const g3 = clean.slice(4, 6);
-  const g4 = clean.slice(6, 10);
-  return [g1, g2, g3, g4].filter(g => g.length > 0).join('-');
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  // If it matches standard 10-char Indian license plate e.g. MH15HH9844
+  const plateMatch = trimmed.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (/^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$/.test(plateMatch)) {
+    const g1 = plateMatch.slice(0, 2);
+    const g2 = plateMatch.slice(2, 4);
+    const g3 = plateMatch.length === 10 ? plateMatch.slice(4, 6) : plateMatch.slice(4, 5);
+    const g4 = plateMatch.slice(plateMatch.length - 4);
+    return `${g1}-${g2}-${g3}-${g4}`;
+  }
+  return trimmed;
 }
 
 export function VehiclesMaster() {
@@ -31,6 +35,7 @@ export function VehiclesMaster() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [fuelProducts, setFuelProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
 
   // Pagination & Filter states
   const [page, setPage] = useState<number>(0);
@@ -38,6 +43,7 @@ export function VehiclesMaster() {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalElements, setTotalElements] = useState<number>(0);
   const [search, setSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [vehicleTypeFilter, setVehicleTypeFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [expiredInsuranceFilter, setExpiredInsuranceFilter] = useState<boolean>(false);
@@ -56,7 +62,7 @@ export function VehiclesMaster() {
 
   const [formData, setFormData] = useState({
     vehicleNumber: '',
-    vehicleType: '',
+    vehicleType: 'Car',
     make: '',
     model: '',
     year: '',
@@ -71,17 +77,37 @@ export function VehiclesMaster() {
     status: 'Active',
   });
 
+  // Debounce search input
   useEffect(() => {
-    if (!formData.vehicleNumber || formData.vehicleNumber.trim().length < 4) {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Real-time debounced uniqueness check
+  useEffect(() => {
+    const val = (formData.vehicleNumber || '').trim();
+    if (!val) {
       setIsNumUnique(true);
+      setCheckingNum(false);
       return;
     }
+
+    // If editing and the vehicle number is identical to the current one, it's valid immediately without network call
+    if (editingVehicle && val.toLowerCase() === (editingVehicle.vehicleNumber || '').trim().toLowerCase()) {
+      setIsNumUnique(true);
+      setCheckingNum(false);
+      return;
+    }
+
     const timer = setTimeout(async () => {
       setCheckingNum(true);
       try {
         const unique = await checkVehicleUnique(
           'vehicleNumber',
-          formData.vehicleNumber,
+          val,
           editingVehicle?.id ? String(editingVehicle.id) : undefined
         );
         setIsNumUnique(unique);
@@ -94,13 +120,13 @@ export function VehiclesMaster() {
     return () => clearTimeout(timer);
   }, [formData.vehicleNumber, editingVehicle]);
 
-  const loadVehicles = async () => {
+  const loadVehicles = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetchVehicles({
         page,
         size: pageSize,
-        search,
+        search: debouncedSearch,
         vehicleType: vehicleTypeFilter,
         status: statusFilter,
         expiredInsurance: expiredInsuranceFilter,
@@ -108,9 +134,9 @@ export function VehiclesMaster() {
         sortBy,
         sortDir,
       });
-      setVehicles(response.content);
-      setTotalPages(response.totalPages);
-      setTotalElements(response.totalElements);
+      setVehicles(response.content || []);
+      setTotalPages(response.totalPages || 1);
+      setTotalElements(response.totalElements || 0);
     } catch (err) {
       console.error('Failed to load vehicles from API:', err);
       setVehicles([]);
@@ -119,12 +145,12 @@ export function VehiclesMaster() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, debouncedSearch, vehicleTypeFilter, statusFilter, expiredInsuranceFilter, expiredPucFilter, sortBy, sortDir]);
 
   const loadFuelProducts = async () => {
     try {
       const response = await fetchProducts({ size: 1000, category: 'Fuel' });
-      setFuelProducts(response.content);
+      setFuelProducts(response.content || []);
     } catch (err) {
       console.error('Failed to load products for fuel types:', err);
     }
@@ -136,7 +162,7 @@ export function VehiclesMaster() {
 
   useEffect(() => {
     loadVehicles();
-  }, [page, pageSize, search, vehicleTypeFilter, statusFilter, expiredInsuranceFilter, expiredPucFilter, sortBy, sortDir]);
+  }, [loadVehicles]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value);
@@ -172,28 +198,30 @@ export function VehiclesMaster() {
     });
     setEditingVehicle(null);
     setIsNumUnique(true);
+    setCheckingNum(false);
     setShowAddDialog(true);
   };
 
   const handleEdit = (vehicle: Vehicle) => {
     setFormData({
-      vehicleNumber: vehicle.vehicleNumber,
-      vehicleType: vehicle.vehicleType,
-      make: vehicle.make,
-      model: vehicle.model,
-      year: vehicle.year,
-      fuelType: vehicle.fuelType,
-      capacity: vehicle.capacity,
-      mileage: vehicle.mileage,
-      color: vehicle.color,
-      chassisNumber: vehicle.chassisNumber,
-      engineNumber: vehicle.engineNumber,
-      insuranceExpiry: vehicle.insuranceExpiry,
-      pucExpiry: vehicle.pucExpiry,
-      status: vehicle.status,
+      vehicleNumber: vehicle.vehicleNumber || '',
+      vehicleType: vehicle.vehicleType || 'Car',
+      make: vehicle.make || '',
+      model: vehicle.model || '',
+      year: vehicle.year || '',
+      fuelType: vehicle.fuelType || '',
+      capacity: vehicle.capacity || '',
+      mileage: vehicle.mileage || '',
+      color: vehicle.color || '',
+      chassisNumber: vehicle.chassisNumber || '',
+      engineNumber: vehicle.engineNumber || '',
+      insuranceExpiry: vehicle.insuranceExpiry || '',
+      pucExpiry: vehicle.pucExpiry || '',
+      status: vehicle.status || 'Active',
     });
     setEditingVehicle(vehicle);
     setIsNumUnique(true);
+    setCheckingNum(false);
     setShowAddDialog(true);
   };
 
@@ -214,33 +242,39 @@ export function VehiclesMaster() {
   };
 
   const handleSave = async () => {
-    if (!formData.vehicleNumber.trim() || !formData.vehicleType || !formData.make.trim() || !formData.model.trim()) {
-      toast.warning('Please fill in all required fields');
+    const vNum = (formData.vehicleNumber || '').trim();
+    const vMake = (formData.make || '').trim();
+    const vType = formData.vehicleType || 'Car';
+
+    if (!vNum || !vType || !vMake) {
+      toast.warning('Please fill in vehicle number, type, and make');
       return;
     }
 
     if (!isNumUnique) {
-      toast.error('Vehicle number is already registered');
+      toast.error(`Vehicle number "${vNum}" is already registered`);
       return;
     }
 
     const payload = {
-      vehicleNumber: formatVehicleNumber(formData.vehicleNumber),
-      vehicleType: formData.vehicleType,
-      make: formData.make.trim(),
-      model: formData.model.trim(),
-      year: formData.year.trim(),
-      fuelType: formData.fuelType,
-      capacity: formData.capacity,
-      mileage: formData.mileage,
-      color: formData.color.trim(),
-      chassisNumber: formData.chassisNumber.trim(),
-      engineNumber: formData.engineNumber.trim(),
-      insuranceExpiry: formData.insuranceExpiry,
-      pucExpiry: formData.pucExpiry,
-      status: formData.status,
+      vehicleNumber: vNum,
+      vehicleType: vType,
+      make: vMake,
+      model: (formData.model || vMake || '').trim(),
+      year: (formData.year || '').trim(),
+      fuelType: formData.fuelType || '',
+      capacity: (formData.capacity || '').trim(),
+      mileage: (formData.mileage || '').trim(),
+      color: (formData.color || '').trim(),
+      chassisNumber: (formData.chassisNumber || '').trim(),
+      engineNumber: (formData.engineNumber || '').trim(),
+      insuranceExpiry: formData.insuranceExpiry || '',
+      pucExpiry: formData.pucExpiry || '',
+      status: formData.status || 'Active',
     };
 
+    if (saving) return;
+    setSaving(true);
     try {
       if (editingVehicle) {
         await updateVehicleApi(editingVehicle.id, payload);
@@ -250,9 +284,11 @@ export function VehiclesMaster() {
         toast.success('Vehicle created successfully');
       }
       setShowAddDialog(false);
-      loadVehicles();
+      await loadVehicles();
     } catch (err: any) {
       toast.error(err.message || 'Failed to save vehicle');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -261,7 +297,13 @@ export function VehiclesMaster() {
       case 'Car':
         return Car;
       case 'Truck':
+      case 'Tanker':
+      case 'Commercial':
+      case 'Tractor':
+      case 'Equipment':
         return Truck;
+      case 'Generator':
+        return Zap;
       case 'Bike':
         return Bike;
       default:
@@ -275,7 +317,7 @@ export function VehiclesMaster() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="mb-2">Vehicles Master</h1>
-          <p className="text-muted-foreground">Manage station fleet and customer vehicle records</p>
+          <p className="text-muted-foreground">Manage station fleet, generator assets, and operational vehicle records</p>
         </div>
         <Button onClick={handleAdd} className="gap-2">
           <Plus className="w-4 h-4" />
@@ -295,7 +337,7 @@ export function VehiclesMaster() {
               className="pl-9"
             />
           </div>
-          <div className="w-40">
+          <div className="w-44">
             <Select value={vehicleTypeFilter} onValueChange={(v) => { setVehicleTypeFilter(v); setPage(0); }}>
               <SelectTrigger>
                 <SelectValue placeholder="Vehicle Type" />
@@ -304,7 +346,12 @@ export function VehiclesMaster() {
                 <SelectItem value="ALL">All Types</SelectItem>
                 <SelectItem value="Car">Car</SelectItem>
                 <SelectItem value="Truck">Truck</SelectItem>
+                <SelectItem value="Generator">Generator</SelectItem>
+                <SelectItem value="Equipment">Equipment</SelectItem>
+                <SelectItem value="Tractor">Tractor</SelectItem>
                 <SelectItem value="Bike">Bike</SelectItem>
+                <SelectItem value="Commercial">Commercial</SelectItem>
+                <SelectItem value="Other">Other</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -531,26 +578,66 @@ export function VehiclesMaster() {
               {editingVehicle ? 'Update vehicle details' : 'Add a new vehicle to the station records'}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          {/* Informative Note for Summary Report & Own Usage */}
+          <div className="mx-6 mt-4 p-3 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 rounded-lg flex items-start gap-2.5 text-xs text-sky-800 dark:text-sky-300">
+            <Info className="w-4 h-4 text-sky-600 dark:text-sky-400 mt-0.5 flex-shrink-0" />
+            <div className="space-y-0.5">
+              <p className="font-semibold text-sky-900 dark:text-sky-200">Dynamic Summary Report &amp; Own Usage Integration</p>
+              <p className="text-[11px] text-sky-700 dark:text-sky-400 leading-relaxed">
+                This vehicle number/name dynamically generates a dedicated column in the <strong>Monthly &amp; Yearly Summary Report</strong> and is automatically available for <strong>Own Usage</strong> operational tracking.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 py-4 px-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="vehicleNumber">Vehicle Number <span className="text-red-500">*</span></Label>
-                <Input
-                  id="vehicleNumber"
-                  value={formData.vehicleNumber}
-                  onChange={(e) => setFormData({ ...formData, vehicleNumber: formatVehicleNumber(e.target.value) })}
-                  placeholder="Enter vehicle number"
-                />
+                <Label htmlFor="vehicleNumber" className="flex items-center justify-between">
+                  <span>Vehicle Number / Name <span className="text-red-500">*</span></span>
+                  {checkingNum && (
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin text-cyan-500" /> Checking...
+                    </span>
+                  )}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="vehicleNumber"
+                    value={formData.vehicleNumber || ''}
+                    onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value })}
+                    placeholder="e.g. Tanker, D.G.Set, Nios, MH15HH9844"
+                    className={`font-mono text-sm ${
+                      !isNumUnique ? 'border-red-500 focus-visible:ring-red-500' :
+                      (formData.vehicleNumber || '').trim().length > 0 && !checkingNum ? 'border-emerald-500 focus-visible:ring-emerald-500' : ''
+                    }`}
+                  />
+                  {(formData.vehicleNumber || '').trim().length > 0 && !checkingNum && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                      {isNumUnique ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-red-500" />
+                      )}
+                    </div>
+                  )}
+                </div>
                 {!isNumUnique && (
                   <p className="text-[11px] text-red-500 font-medium mt-0.5 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-500" /> This vehicle number is already registered.
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                    Vehicle "{(formData.vehicleNumber || '').trim()}" is already registered in Vehicle Master!
+                  </p>
+                )}
+                {isNumUnique && (formData.vehicleNumber || '').trim().length > 0 && !checkingNum && (
+                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                    Vehicle number is unique &amp; available
                   </p>
                 )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="vehicleType">Vehicle Type <span className="text-red-500">*</span></Label>
                 <Select
-                  value={formData.vehicleType}
+                  value={formData.vehicleType || 'Car'}
                   onValueChange={(val) => setFormData({ ...formData, vehicleType: val })}
                 >
                   <SelectTrigger id="vehicleType">
@@ -559,7 +646,12 @@ export function VehiclesMaster() {
                   <SelectContent>
                     <SelectItem value="Car">Car</SelectItem>
                     <SelectItem value="Truck">Truck</SelectItem>
+                    <SelectItem value="Generator">Generator</SelectItem>
+                    <SelectItem value="Equipment">Equipment</SelectItem>
+                    <SelectItem value="Tractor">Tractor</SelectItem>
                     <SelectItem value="Bike">Bike</SelectItem>
+                    <SelectItem value="Commercial">Commercial</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -570,7 +662,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="make">Make <span className="text-red-500">*</span></Label>
                 <Input
                   id="make"
-                  value={formData.make}
+                  value={formData.make || ''}
                   onChange={(e) => setFormData({ ...formData, make: e.target.value })}
                   placeholder="Maruti Suzuki"
                 />
@@ -579,7 +671,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="model">Model <span className="text-red-500">*</span></Label>
                 <Input
                   id="model"
-                  value={formData.model}
+                  value={formData.model || ''}
                   onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                   placeholder="Swift"
                 />
@@ -591,7 +683,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="year">Year</Label>
                 <Input
                   id="year"
-                  value={formData.year}
+                  value={formData.year || ''}
                   onChange={(e) => setFormData({ ...formData, year: e.target.value })}
                   placeholder="2023"
                 />
@@ -600,7 +692,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="color">Color</Label>
                 <Input
                   id="color"
-                  value={formData.color}
+                  value={formData.color || ''}
                   onChange={(e) => setFormData({ ...formData, color: e.target.value })}
                   placeholder="White"
                 />
@@ -611,7 +703,7 @@ export function VehiclesMaster() {
               <div className="grid gap-2">
                 <Label htmlFor="fuelType">Fuel Type</Label>
                 <Select
-                  value={formData.fuelType}
+                  value={formData.fuelType || ''}
                   onValueChange={(val) => setFormData({ ...formData, fuelType: val })}
                 >
                   <SelectTrigger id="fuelType">
@@ -636,7 +728,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="capacity">Fuel Capacity (L)</Label>
                 <Input
                   id="capacity"
-                  value={formData.capacity}
+                  value={formData.capacity || ''}
                   onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
                   placeholder="42 L"
                 />
@@ -648,7 +740,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="mileage">Mileage (Km/L)</Label>
                 <Input
                   id="mileage"
-                  value={formData.mileage}
+                  value={formData.mileage || ''}
                   onChange={(e) => setFormData({ ...formData, mileage: e.target.value })}
                   placeholder="18 km/l"
                 />
@@ -656,7 +748,7 @@ export function VehiclesMaster() {
               <div className="grid gap-2">
                 <Label htmlFor="status">Status</Label>
                 <Select
-                  value={formData.status}
+                  value={formData.status || 'Active'}
                   onValueChange={(val) => setFormData({ ...formData, status: val })}
                 >
                   <SelectTrigger id="status">
@@ -676,7 +768,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="chassisNumber">Chassis Number</Label>
                 <Input
                   id="chassisNumber"
-                  value={formData.chassisNumber}
+                  value={formData.chassisNumber || ''}
                   onChange={(e) => setFormData({ ...formData, chassisNumber: e.target.value })}
                   placeholder="MA3ERLF1S00123456"
                 />
@@ -685,7 +777,7 @@ export function VehiclesMaster() {
                 <Label htmlFor="engineNumber">Engine Number</Label>
                 <Input
                   id="engineNumber"
-                  value={formData.engineNumber}
+                  value={formData.engineNumber || ''}
                   onChange={(e) => setFormData({ ...formData, engineNumber: e.target.value })}
                   placeholder="K12M1234567"
                 />
@@ -698,7 +790,7 @@ export function VehiclesMaster() {
                 <Input
                   id="insuranceExpiry"
                   type="date"
-                  value={formData.insuranceExpiry}
+                  value={formData.insuranceExpiry || ''}
                   onChange={(e) => setFormData({ ...formData, insuranceExpiry: e.target.value })}
                 />
               </div>
@@ -707,18 +799,34 @@ export function VehiclesMaster() {
                 <Input
                   id="pucExpiry"
                   type="date"
-                  value={formData.pucExpiry}
+                  value={formData.pucExpiry || ''}
                   onChange={(e) => setFormData({ ...formData, pucExpiry: e.target.value })}
                 />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              {editingVehicle ? 'Update' : 'Add Vehicle'}
+            <Button
+              onClick={handleSave}
+              disabled={!(formData.vehicleNumber || '').trim() || !formData.vehicleType || !(formData.make || '').trim() || !isNumUnique || checkingNum || saving}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  {editingVehicle ? 'Updating...' : 'Saving...'}
+                </>
+              ) : checkingNum ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Verifying...
+                </>
+              ) : (
+                editingVehicle ? 'Update Vehicle' : 'Add Vehicle'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
