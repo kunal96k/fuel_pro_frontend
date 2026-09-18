@@ -28,6 +28,8 @@ import { VoucherPayment } from './components/VoucherPayment';
 import { VoucherReceipt } from './components/VoucherReceipt';
 import { OwnUsage } from './components/OwnUsage';
 import { FuelTesting } from './components/FuelTesting';
+import { FuelPurchase } from './components/FuelPurchase';
+import { OilPurchase } from './components/OilPurchase';
 import { MonthlyYearlySummaryReport } from './components/MonthlyYearlySummaryReport';
 
 const reportTitles: Record<string, string> = {
@@ -89,7 +91,9 @@ export default function App() {
       case 'customer':
         return <CustomerMaster />;
       case 'fuel-purchase':
+        return <FuelPurchase />;
       case 'oil-purchase':
+        return <OilPurchase />;
       case 'tanker-load':
         return <ImportWizard purchaseType={activeSection} />;
       case 'fuel-sale':

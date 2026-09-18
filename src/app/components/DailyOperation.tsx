@@ -16,7 +16,9 @@ import {
   Save,
   Plus,
   Trash2,
-  CheckCircle
+  CheckCircle,
+  XCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 interface DailyOperationProps {
@@ -644,13 +646,13 @@ function FuelTestingForm() {
                   </SelectItem>
                   <SelectItem value="fail">
                     <div className="flex items-center gap-2">
-                      <span className="text-red-500">✗</span>
+                      <XCircle className="w-4 h-4 text-red-500" />
                       Fail - Below Standards
                     </div>
                   </SelectItem>
                   <SelectItem value="warning">
                     <div className="flex items-center gap-2">
-                      <span className="text-yellow-500">⚠</span>
+                      <AlertTriangle className="w-4 h-4 text-yellow-500" />
                       Warning - Borderline
                     </div>
                   </SelectItem>

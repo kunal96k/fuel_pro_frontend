@@ -19,7 +19,8 @@ import {
   X,
   Loader2,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  Check
 } from 'lucide-react';
 import {
   Dialog,
@@ -852,10 +853,12 @@ export function CustomerMaster() {
                             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addVehicleRow(); } }}
                           />
                           {newVehicle.vehicleNumber && (
-                            <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold ${
-                              isValidVehicleNumber(newVehicle.vehicleNumber) ? 'text-green-500' : 'text-amber-500'
-                            }`}>
-                              {isValidVehicleNumber(newVehicle.vehicleNumber) ? '✓' : '…'}
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2">
+                              {isValidVehicleNumber(newVehicle.vehicleNumber) ? (
+                                <Check className="w-3.5 h-3.5 text-green-500" />
+                              ) : (
+                                <span className="text-[9px] font-bold text-amber-500 font-mono">…</span>
+                              )}
                             </span>
                           )}
                         </div>

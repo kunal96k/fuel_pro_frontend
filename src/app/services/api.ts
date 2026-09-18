@@ -1448,6 +1448,455 @@ export async function fetchLatestOrDateRates(date: string): Promise<Record<strin
   return await res.json();
 }
 
+// --- Fuel Purchase Interfaces ---
+export interface FuelPurchaseRecord {
+  id: string;
+  voucherNo: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  vendorName: string;
+  supplyPlant?: string;
+  vehicleNo?: string;
+  tankId?: string;
+  tankName?: string;
+  density?: number | '';
+  ewayBillNo?: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  totalValue: number;
+  taxableCharges: number;
+  vatAmount: number;
+  cessAmount: number;
+  otherCharges: number;
+  roundingOff: number;
+  totalAmount: number;
+  paymentMode: string;
+  remarks: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FuelPurchaseQueryParams {
+  search?: string;
+  product?: string;
+  vendor?: string;
+  paymentMode?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: string;
+}
+
+// --- Fuel Purchase APIs ---
+export async function fetchFuelPurchases(params: FuelPurchaseQueryParams = {}): Promise<PaginatedResponse<FuelPurchaseRecord>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.product) query.set('product', params.product);
+  if (params.vendor) query.set('vendor', params.vendor);
+  if (params.paymentMode) query.set('paymentMode', params.paymentMode);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    voucherNo: item.voucherNo || '',
+    invoiceNo: item.invoiceNo || '',
+    invoiceDate: item.invoiceDate || '',
+    vendorName: item.vendorName || '',
+    supplyPlant: item.supplyPlant || '',
+    vehicleNo: item.vehicleNo || '',
+    tankId: item.tankId ? String(item.tankId) : '',
+    tankName: item.tankName || '',
+    density: item.density !== null && item.density !== undefined ? Number(item.density) : '',
+    ewayBillNo: item.ewayBillNo || '',
+    productId: item.productId ? String(item.productId) : '',
+    productName: item.productName || '',
+    quantity: Number(item.quantity) || 0,
+    unit: item.unit || 'Litre',
+    rate: Number(item.rate) || 0,
+    totalValue: Number(item.totalValue) || 0,
+    taxableCharges: Number(item.taxableCharges) || 0,
+    vatAmount: Number(item.vatAmount) || 0,
+    cessAmount: Number(item.cessAmount) || 0,
+    otherCharges: Number(item.otherCharges) || 0,
+    roundingOff: Number(item.roundingOff) || 0,
+    totalAmount: Number(item.totalAmount) || 0,
+    paymentMode: item.paymentMode || 'RTGS',
+    remarks: item.remarks || '',
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
+}
+
+export async function fetchFuelPurchaseById(id: string): Promise<FuelPurchaseRecord> {
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch fuel purchase: ${res.statusText}`);
+  const item = await res.json();
+  return {
+    ...item,
+    id: String(item.id),
+    quantity: Number(item.quantity) || 0,
+    rate: Number(item.rate) || 0,
+    totalValue: Number(item.totalValue) || 0,
+    taxableCharges: Number(item.taxableCharges) || 0,
+    vatAmount: Number(item.vatAmount) || 0,
+    cessAmount: Number(item.cessAmount) || 0,
+    otherCharges: Number(item.otherCharges) || 0,
+    roundingOff: Number(item.roundingOff) || 0,
+    totalAmount: Number(item.totalAmount) || 0,
+  };
+}
+
+export async function createFuelPurchaseApi(payload: Omit<FuelPurchaseRecord, 'id'>): Promise<FuelPurchaseRecord> {
+  const cleanPayload = {
+    ...payload,
+    density: payload.density === '' ? null : Number(payload.density),
+    quantity: Number(payload.quantity) || 0,
+    rate: Number(payload.rate) || 0,
+    taxableCharges: Number(payload.taxableCharges) || 0,
+    vatAmount: Number(payload.vatAmount) || 0,
+    cessAmount: Number(payload.cessAmount) || 0,
+    otherCharges: Number(payload.otherCharges) || 0,
+    roundingOff: Number(payload.roundingOff) || 0,
+  };
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanPayload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create fuel purchase: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateFuelPurchaseApi(id: string, payload: Omit<FuelPurchaseRecord, 'id'>): Promise<FuelPurchaseRecord> {
+  const cleanPayload = {
+    ...payload,
+    density: payload.density === '' ? null : Number(payload.density),
+    quantity: Number(payload.quantity) || 0,
+    rate: Number(payload.rate) || 0,
+    taxableCharges: Number(payload.taxableCharges) || 0,
+    vatAmount: Number(payload.vatAmount) || 0,
+    cessAmount: Number(payload.cessAmount) || 0,
+    otherCharges: Number(payload.otherCharges) || 0,
+    roundingOff: Number(payload.roundingOff) || 0,
+  };
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanPayload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update fuel purchase: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteFuelPurchaseApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete fuel purchase: ${res.statusText}`);
+}
+
+export async function fetchNextFuelPurchaseVoucher(): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases/next-voucher`);
+  if (!res.ok) throw new Error(`Failed to fetch next voucher code: ${res.statusText}`);
+  const data = await res.json();
+  return data.voucherNo;
+}
+
+export async function checkFuelPurchaseInvoiceExists(invoiceNo: string, excludeId?: string | number): Promise<{ exists: boolean; message: string }> {
+  if (!invoiceNo || !invoiceNo.trim()) {
+    return { exists: false, message: '' };
+  }
+  const query = new URLSearchParams({ invoiceNo: invoiceNo.trim() });
+  if (excludeId) {
+    query.set('excludeId', String(excludeId));
+  }
+  const res = await fetch(`${API_BASE_URL}/fuel-purchases/check-invoice?${query.toString()}`);
+  if (!res.ok) return { exists: false, message: '' };
+  return await res.json();
+}
+
+// --- Oil & Lubricant Purchase Interfaces & APIs ---
+export interface OilPurchaseItem {
+  id?: string;
+  productId: string;
+  productName: string;
+  hsnCode: string;
+  batchNo: string;
+  packType: 'PAI' | 'CS' | 'CAN' | 'BOT' | 'PCS' | string;
+  packQty: number;
+  volumePerPack: number;
+  totalVolume: number;
+  ratePerUnit: number;
+  grossAmount: number;
+  discount: number;
+  taxableValue: number;
+  gstRate: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  itemTotal: number;
+}
+
+export interface OilPurchaseRecord {
+  id: string;
+  voucherNo: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  vendorName: string;
+  vendorGstin?: string;
+  supplyPlant?: string;
+  vehicleNo?: string;
+  transporterName?: string;
+  ewayBillNo?: string;
+  paymentMode: string;
+  items: OilPurchaseItem[];
+  totalGrossAmount: number;
+  totalDiscount: number;
+  totalTaxableValue: number;
+  totalCgstAmount: number;
+  totalSgstAmount: number;
+  cashDiscount: number;
+  roundingOff: number;
+  totalInvoiceAmount: number;
+  remarks?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OilPurchaseQueryParams {
+  search?: string;
+  vendor?: string;
+  paymentMode?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: string;
+}
+
+export async function fetchOilPurchases(params: OilPurchaseQueryParams = {}): Promise<PaginatedResponse<OilPurchaseRecord>> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.search) query.set('search', params.search);
+  if (params.vendor && params.vendor !== 'ALL') query.set('vendor', params.vendor);
+  if (params.paymentMode && params.paymentMode !== 'ALL') query.set('paymentMode', params.paymentMode);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/oil-purchases?${query.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  const data = await res.json();
+  return parsePaginatedResponse(data, (item: any) => ({
+    id: String(item.id),
+    voucherNo: item.voucherNo || '',
+    invoiceNo: item.invoiceNo || '',
+    invoiceDate: item.invoiceDate || '',
+    vendorName: item.vendorName || '',
+    vendorGstin: item.vendorGstin || '',
+    supplyPlant: item.supplyPlant || '',
+    vehicleNo: item.vehicleNo || '',
+    transporterName: item.transporterName || '',
+    ewayBillNo: item.ewayBillNo || '',
+    paymentMode: item.paymentMode || 'RTGS',
+    items: (item.items || []).map((i: any) => ({
+      id: i.id ? String(i.id) : undefined,
+      productId: i.productId || '',
+      productName: i.productName || '',
+      hsnCode: i.hsnCode || '',
+      batchNo: i.batchNo || '',
+      packType: i.packType || 'PAI',
+      packQty: Number(i.packQty) || 0,
+      volumePerPack: Number(i.volumePerPack) || 0,
+      totalVolume: Number(i.totalVolume) || 0,
+      ratePerUnit: Number(i.ratePerUnit) || 0,
+      grossAmount: Number(i.grossAmount) || 0,
+      discount: Number(i.discount) || 0,
+      taxableValue: Number(i.taxableValue) || 0,
+      gstRate: Number(i.gstRate) || 18,
+      cgstAmount: Number(i.cgstAmount) || 0,
+      sgstAmount: Number(i.sgstAmount) || 0,
+      itemTotal: Number(i.itemTotal) || 0,
+    })),
+    totalGrossAmount: Number(item.totalGrossAmount) || 0,
+    totalDiscount: Number(item.totalDiscount) || 0,
+    totalTaxableValue: Number(item.totalTaxableValue) || 0,
+    totalCgstAmount: Number(item.totalCgstAmount) || 0,
+    totalSgstAmount: Number(item.totalSgstAmount) || 0,
+    cashDiscount: Number(item.cashDiscount) || 0,
+    roundingOff: Number(item.roundingOff) || 0,
+    totalInvoiceAmount: Number(item.totalInvoiceAmount) || 0,
+    remarks: item.remarks || '',
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
+}
+
+export async function fetchOilPurchaseById(id: string): Promise<OilPurchaseRecord> {
+  const res = await fetch(`${API_BASE_URL}/oil-purchases/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch oil purchase: ${res.statusText}`);
+  const item = await res.json();
+  return {
+    ...item,
+    id: String(item.id),
+    totalGrossAmount: Number(item.totalGrossAmount) || 0,
+    totalDiscount: Number(item.totalDiscount) || 0,
+    totalTaxableValue: Number(item.totalTaxableValue) || 0,
+    totalCgstAmount: Number(item.totalCgstAmount) || 0,
+    totalSgstAmount: Number(item.totalSgstAmount) || 0,
+    cashDiscount: Number(item.cashDiscount) || 0,
+    roundingOff: Number(item.roundingOff) || 0,
+    totalInvoiceAmount: Number(item.totalInvoiceAmount) || 0,
+    items: (item.items || []).map((i: any) => ({
+      id: i.id ? String(i.id) : undefined,
+      productId: i.productId || '',
+      productName: i.productName || '',
+      hsnCode: i.hsnCode || '',
+      batchNo: i.batchNo || '',
+      packType: i.packType || 'PAI',
+      packQty: Number(i.packQty) || 0,
+      volumePerPack: Number(i.volumePerPack) || 0,
+      totalVolume: Number(i.totalVolume) || 0,
+      ratePerUnit: Number(i.ratePerUnit) || 0,
+      grossAmount: Number(i.grossAmount) || 0,
+      discount: Number(i.discount) || 0,
+      taxableValue: Number(i.taxableValue) || 0,
+      gstRate: Number(i.gstRate) || 18,
+      cgstAmount: Number(i.cgstAmount) || 0,
+      sgstAmount: Number(i.sgstAmount) || 0,
+      itemTotal: Number(i.itemTotal) || 0,
+    }))
+  };
+}
+
+export async function createOilPurchaseApi(payload: Omit<OilPurchaseRecord, 'id'>): Promise<OilPurchaseRecord> {
+  const cleanPayload = {
+    ...payload,
+    totalGrossAmount: Number(payload.totalGrossAmount) || 0,
+    totalDiscount: Number(payload.totalDiscount) || 0,
+    totalTaxableValue: Number(payload.totalTaxableValue) || 0,
+    totalCgstAmount: Number(payload.totalCgstAmount) || 0,
+    totalSgstAmount: Number(payload.totalSgstAmount) || 0,
+    cashDiscount: Number(payload.cashDiscount) || 0,
+    roundingOff: Number(payload.roundingOff) || 0,
+    totalInvoiceAmount: Number(payload.totalInvoiceAmount) || 0,
+    items: payload.items.map(i => ({
+      ...i,
+      packQty: Number(i.packQty) || 0,
+      volumePerPack: Number(i.volumePerPack) || 0,
+      totalVolume: Number(i.totalVolume) || 0,
+      ratePerUnit: Number(i.ratePerUnit) || 0,
+      grossAmount: Number(i.grossAmount) || 0,
+      discount: Number(i.discount) || 0,
+      taxableValue: Number(i.taxableValue) || 0,
+      gstRate: Number(i.gstRate) || 18,
+      cgstAmount: Number(i.cgstAmount) || 0,
+      sgstAmount: Number(i.sgstAmount) || 0,
+      itemTotal: Number(i.itemTotal) || 0,
+    }))
+  };
+  const res = await fetch(`${API_BASE_URL}/oil-purchases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanPayload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to create oil purchase: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function updateOilPurchaseApi(id: string, payload: Omit<OilPurchaseRecord, 'id'>): Promise<OilPurchaseRecord> {
+  const cleanPayload = {
+    ...payload,
+    totalGrossAmount: Number(payload.totalGrossAmount) || 0,
+    totalDiscount: Number(payload.totalDiscount) || 0,
+    totalTaxableValue: Number(payload.totalTaxableValue) || 0,
+    totalCgstAmount: Number(payload.totalCgstAmount) || 0,
+    totalSgstAmount: Number(payload.totalSgstAmount) || 0,
+    cashDiscount: Number(payload.cashDiscount) || 0,
+    roundingOff: Number(payload.roundingOff) || 0,
+    totalInvoiceAmount: Number(payload.totalInvoiceAmount) || 0,
+    items: payload.items.map(i => ({
+      ...i,
+      packQty: Number(i.packQty) || 0,
+      volumePerPack: Number(i.volumePerPack) || 0,
+      totalVolume: Number(i.totalVolume) || 0,
+      ratePerUnit: Number(i.ratePerUnit) || 0,
+      grossAmount: Number(i.grossAmount) || 0,
+      discount: Number(i.discount) || 0,
+      taxableValue: Number(i.taxableValue) || 0,
+      gstRate: Number(i.gstRate) || 18,
+      cgstAmount: Number(i.cgstAmount) || 0,
+      sgstAmount: Number(i.sgstAmount) || 0,
+      itemTotal: Number(i.itemTotal) || 0,
+    }))
+  };
+  const res = await fetch(`${API_BASE_URL}/oil-purchases/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cleanPayload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to update oil purchase: ${res.statusText}`);
+  }
+  const item = await res.json();
+  return { ...item, id: String(item.id) };
+}
+
+export async function deleteOilPurchaseApi(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/oil-purchases/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete oil purchase: ${res.statusText}`);
+}
+
+export async function fetchNextOilPurchaseVoucher(): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/oil-purchases/next-voucher`);
+  if (!res.ok) throw new Error(`Failed to fetch next voucher code: ${res.statusText}`);
+  const data = await res.json();
+  return data.voucherNo;
+}
+
+export async function checkOilPurchaseInvoiceExists(invoiceNo: string, excludeId?: string | number): Promise<{ exists: boolean; message: string }> {
+  if (!invoiceNo || !invoiceNo.trim()) {
+    return { exists: false, message: '' };
+  }
+  const query = new URLSearchParams({ invoiceNo: invoiceNo.trim() });
+  if (excludeId) {
+    query.set('excludeId', String(excludeId));
+  }
+  const res = await fetch(`${API_BASE_URL}/oil-purchases/check-invoice?${query.toString()}`);
+  if (!res.ok) return { exists: false, message: '' };
+  return await res.json();
+}
+
 // --- MPD Reconciliation Interfaces & APIs ---
 export interface MpdReconciliationItem {
   employeeId?: number | string;

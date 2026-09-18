@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   FileText,
   Users,
-  MessageSquare
+  MessageSquare,
+  Check
 } from 'lucide-react';
 
 export function ComplianceCenter() {
@@ -321,11 +322,11 @@ export function ComplianceCenter() {
                   <CheckCircle className="w-4 h-4 text-green-500" />
                   <span className="font-medium text-green-800">Compliance Check Passed</span>
                 </div>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>✓ Customer has opted in for email communications</li>
-                  <li>✓ Message content follows FDCPA guidelines</li>
-                  <li>✓ Sending within allowed business hours</li>
-                  <li>✓ Proper identification and opt-out instructions included</li>
+                <ul className="text-sm text-muted-foreground space-y-1.5">
+                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-green-600 shrink-0" /> Customer has opted in for email communications</li>
+                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-green-600 shrink-0" /> Message content follows FDCPA guidelines</li>
+                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-green-600 shrink-0" /> Sending within allowed business hours</li>
+                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-green-600 shrink-0" /> Proper identification and opt-out instructions included</li>
                 </ul>
               </div>
             </CardContent>
