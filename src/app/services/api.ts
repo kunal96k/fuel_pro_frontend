@@ -1623,13 +1623,20 @@ export async function fetchNextFuelPurchaseVoucher(): Promise<string> {
   return data.voucherNo;
 }
 
-export async function checkFuelPurchaseInvoiceExists(invoiceNo: string, excludeId?: string | number): Promise<{ exists: boolean; message: string }> {
+export async function checkFuelPurchaseInvoiceExists(
+  invoiceNo: string,
+  excludeId?: string | number,
+  product?: string
+): Promise<{ exists: boolean; message: string }> {
   if (!invoiceNo || !invoiceNo.trim()) {
     return { exists: false, message: '' };
   }
   const query = new URLSearchParams({ invoiceNo: invoiceNo.trim() });
   if (excludeId) {
     query.set('excludeId', String(excludeId));
+  }
+  if (product && product.trim()) {
+    query.set('product', product.trim());
   }
   const res = await fetch(`${API_BASE_URL}/fuel-purchases/check-invoice?${query.toString()}`);
   if (!res.ok) return { exists: false, message: '' };

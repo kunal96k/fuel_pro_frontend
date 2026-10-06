@@ -359,7 +359,8 @@ export function FuelPurchase() {
       try {
         const res = await checkFuelPurchaseInvoiceExists(
           trimmed,
-          modalMode === 'edit' && activeRecordId ? activeRecordId : undefined
+          modalMode === 'edit' && activeRecordId ? activeRecordId : undefined,
+          form.productName
         );
         if (res.exists) {
           setInvoiceExistsError(`Invoice number "${trimmed}" already exists in the system!`);
