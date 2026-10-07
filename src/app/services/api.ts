@@ -2411,3 +2411,32 @@ export async function fetchMonthlySummaryReportApi<T = any>(params: SummaryRepor
   }
   return await res.json();
 }
+
+export interface DsrApiResponse {
+  tank: any;
+  nozzles: { id: string; name: string; mpdName: string; label: string; initialOpeningReading?: number }[];
+  records: any[];
+  grandTotal: any;
+}
+
+export async function fetchDsrReportApi(params: {
+  tankId?: string | number;
+  fiscalYear?: string;
+  month?: string;
+  fromDate?: string;
+  toDate?: string;
+} = {}): Promise<DsrApiResponse> {
+  const query = new URLSearchParams();
+  if (params.tankId !== undefined) query.set('tankId', String(params.tankId));
+  if (params.fiscalYear) query.set('fiscalYear', params.fiscalYear);
+  if (params.month) query.set('month', params.month);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+
+  const res = await fetch(`${API_BASE_URL}/reports/dsr?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch DSR report: ${res.statusText}`);
+  }
+  return await res.json();
+}
+

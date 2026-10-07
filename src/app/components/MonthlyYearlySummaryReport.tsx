@@ -38,7 +38,8 @@ import {
   Receipt,
   Layers,
   Gauge,
-  Clock
+  Clock,
+  ArrowLeft
 } from 'lucide-react';
 import {
   fetchMonthlySummaryReportApi,
@@ -125,7 +126,11 @@ const DEFAULT_COLUMNS: SummaryReportColumnsMeta = {
   ]
 };
 
-export function MonthlyYearlySummaryReport() {
+interface MonthlyYearlySummaryReportProps {
+  onBack?: () => void;
+}
+
+export function MonthlyYearlySummaryReport({ onBack }: MonthlyYearlySummaryReportProps = {}) {
   // ── Filters ──
   const [viewMode, setViewMode] = useState<'shift' | 'day' | 'year'>('shift');
   const [fiscalYear, setFiscalYear] = useState<string>('2025-2026');
@@ -800,7 +805,18 @@ export function MonthlyYearlySummaryReport() {
       {/* ── Page Header ── */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="mb-2">Monthly &amp; Yearly Summary Report</h1>
+          {onBack && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onBack}
+              className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1.5" />
+              Back to Reports Catalog
+            </Button>
+          )}
+          <h1 className="text-2xl font-bold tracking-tight mb-1">Monthly &amp; Yearly Summary Report</h1>
           <p className="text-muted-foreground text-sm">
             Comprehensive fuel station ledger with dynamic products, digital settlements, credit sales, and vehicle own-use consumption
           </p>
