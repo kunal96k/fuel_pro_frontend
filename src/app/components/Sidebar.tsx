@@ -169,11 +169,11 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const [dipsLogFromDate, setDipsLogFromDate] = useState('');
   const [dipsLogToDate, setDipsLogToDate] = useState('');
 
-  // Auto-expand parent group of activeSection if it's a child
+  // Auto-expand parent group of activeSection if it's a child (ensuring only 1 dropdown is open at a time)
   React.useEffect(() => {
     const parent = navigationItems.find(item => item.children?.some(child => child.id === activeSection));
-    if (parent && !expandedItems.includes(parent.id)) {
-      setExpandedItems(prev => [...prev, parent.id]);
+    if (parent) {
+      setExpandedItems([parent.id]);
     }
   }, [activeSection]);
 
@@ -436,11 +436,9 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const ShiftIcon = shift.icon;
 
   const toggleExpanded = (itemId: string) => {
-    setExpandedItems(prev =>
-      prev.includes(itemId)
-        ? prev.filter(id => id !== itemId)
-        : [...prev, itemId]
-    );
+    // Accordion: only one dropdown open at a time.
+    // If the clicked menu is already open, toggle close it; otherwise open only this menu.
+    setExpandedItems(prev => (prev.includes(itemId) ? [] : [itemId]));
   };
 
   const getColorClasses = (iconColor: string) => {
