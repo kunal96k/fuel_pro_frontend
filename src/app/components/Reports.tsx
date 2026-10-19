@@ -20,27 +20,9 @@ interface ReportsProps {
 }
 
 const reportCategories = [
-  {
-    id: 'daily-shift-report',
-    title: 'Daily Shift Report',
-    description: 'View shift-wise sales, collections, and performance metrics',
-    icon: FileText,
-    color: 'blue'
-  },
-  {
-    id: 'credit-sale-report',
-    title: 'Credit Sale Report',
-    description: 'Track credit transactions and outstanding payments',
-    icon: CreditCard,
-    color: 'emerald'
-  },
-  {
-    id: 'own-usage-report',
-    title: 'Own Usage Report',
-    description: 'Monitor fuel consumption for internal usage',
-    icon: Droplet,
-    color: 'cyan'
-  },
+  // =========================================================================
+  // ACTIVE REPORTS (Backend Fully Applied)
+  // =========================================================================
   {
     id: 'monthly-yearly-summary',
     title: 'Monthly/Yearly Summary',
@@ -55,69 +37,107 @@ const reportCategories = [
     icon: TrendingDown,
     color: 'orange'
   },
-  {
-    id: 'cash-shortage-report',
-    title: 'Cash Shortage Report',
-    description: 'Identify cash variances and reconciliation issues',
-    icon: TrendingDown,
-    color: 'rose'
-  },
-  {
-    id: 'stock-report',
-    title: 'Stock Report',
-    description: 'Current inventory levels and stock movements',
-    icon: Package,
-    color: 'amber'
-  },
-  {
-    id: 'ledger-statement',
-    title: 'Ledger Statement',
-    description: 'Account-wise transaction history and balances',
-    icon: BookOpen,
-    color: 'indigo'
-  },
-  {
-    id: 'dispensing-unit-sale',
-    title: 'Dispensing Unit/Nozzle Sale',
-    description: 'Nozzle-wise and pump-wise sales analysis',
-    icon: Gauge,
-    color: 'violet'
-  },
-  {
-    id: 'employee-performance',
-    title: 'Employee Performance',
-    description: 'Staff productivity and performance metrics',
-    icon: Users,
-    color: 'pink'
-  },
-  {
-    id: 'integrated-report',
-    title: 'Integrated Multi-Outlet Report',
-    description: 'Consolidated reports across multiple locations',
-    icon: Building2,
-    color: 'teal'
-  },
-  {
-    id: 'customised-reports',
-    title: 'Customised Reports',
-    description: 'Create custom reports with selected parameters',
-    icon: FileSpreadsheet,
-    color: 'lime'
-  },
-  {
-    id: 'tds-tcs-report',
-    title: 'TDS & TCS Report',
-    description: 'Tax deducted/collected at source reports',
-    icon: Scale,
-    color: 'sky'
-  },
-  {
-    id: 'audit-trails',
-    title: 'Audit Trails',
-    description: 'Complete audit log of system activities',
-    icon: Shield,
-    color: 'fuchsia'
-  }
+
+  // =========================================================================
+  // TEMPORARILY HIDDEN REPORTS (Backend not yet applied)
+  // Kept for future use - uncomment when dedicated backend endpoints are ready:
+  // - Daily Shift Report
+  // - Credit Sale Report
+  // - Own Usage Report
+  // - Cash Shortage Report
+  // - Stock Report
+  // - Ledger Statement
+  // - Dispensing Unit/Nozzle Sale
+  // - Employee Performance
+  // - Integrated Multi-Outlet Report
+  // - Customised Reports
+  // - TDS & TCS Report
+  // - Audit Trails
+  // =========================================================================
+  // {
+  //   id: 'daily-shift-report',
+  //   title: 'Daily Shift Report',
+  //   description: 'View shift-wise sales, collections, and performance metrics',
+  //   icon: FileText,
+  //   color: 'blue'
+  // },
+  // {
+  //   id: 'credit-sale-report',
+  //   title: 'Credit Sale Report',
+  //   description: 'Track credit transactions and outstanding payments',
+  //   icon: CreditCard,
+  //   color: 'emerald'
+  // },
+  // {
+  //   id: 'own-usage-report',
+  //   title: 'Own Usage Report',
+  //   description: 'Monitor fuel consumption for internal usage',
+  //   icon: Droplet,
+  //   color: 'cyan'
+  // },
+  // {
+  //   id: 'cash-shortage-report',
+  //   title: 'Cash Shortage Report',
+  //   description: 'Identify cash variances and reconciliation issues',
+  //   icon: TrendingDown,
+  //   color: 'rose'
+  // },
+  // {
+  //   id: 'stock-report',
+  //   title: 'Stock Report',
+  //   description: 'Current inventory levels and stock movements',
+  //   icon: Package,
+  //   color: 'amber'
+  // },
+  // {
+  //   id: 'ledger-statement',
+  //   title: 'Ledger Statement',
+  //   description: 'Account-wise transaction history and balances',
+  //   icon: BookOpen,
+  //   color: 'indigo'
+  // },
+  // {
+  //   id: 'dispensing-unit-sale',
+  //   title: 'Dispensing Unit/Nozzle Sale',
+  //   description: 'Nozzle-wise and pump-wise sales analysis',
+  //   icon: Gauge,
+  //   color: 'violet'
+  // },
+  // {
+  //   id: 'employee-performance',
+  //   title: 'Employee Performance',
+  //   description: 'Staff productivity and performance metrics',
+  //   icon: Users,
+  //   color: 'pink'
+  // },
+  // {
+  //   id: 'integrated-report',
+  //   title: 'Integrated Multi-Outlet Report',
+  //   description: 'Consolidated reports across multiple locations',
+  //   icon: Building2,
+  //   color: 'teal'
+  // },
+  // {
+  //   id: 'customised-reports',
+  //   title: 'Customised Reports',
+  //   description: 'Create custom reports with selected parameters',
+  //   icon: FileSpreadsheet,
+  //   color: 'lime'
+  // },
+  // {
+  //   id: 'tds-tcs-report',
+  //   title: 'TDS & TCS Report',
+  //   description: 'Tax deducted/collected at source reports',
+  //   icon: Scale,
+  //   color: 'sky'
+  // },
+  // {
+  //   id: 'audit-trails',
+  //   title: 'Audit Trails',
+  //   description: 'Complete audit log of system activities',
+  //   icon: Shield,
+  //   color: 'fuchsia'
+  // }
 ];
 
 const colorClasses = {

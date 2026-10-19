@@ -34,7 +34,12 @@ interface SidebarProps {
 }
 
 const navigationItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, iconColor: 'text-blue-500' },
+  // =========================================================================
+  // TEMPORARILY HIDDEN: Dashboard (Backend not yet applied)
+  // Kept for future use - uncomment when backend API is ready:
+  // =========================================================================
+  // { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, iconColor: 'text-blue-500' },
+
   {
     id: 'master',
     label: 'Master',
@@ -82,32 +87,47 @@ const navigationItems = [
     children: [
       { id: 'fuel-purchase', label: 'Fuel Purchase' },
       { id: 'oil-purchase', label: 'Oil Purchase' },
-      { id: 'tanker-load', label: 'Tanker Load' },
+      // Temporarily hidden: Tanker Load (Backend not yet applied)
+      // Uncomment when backend API is ready:
+      // { id: 'tanker-load', label: 'Tanker Load' },
     ]
   },
-  {
-    id: 'vouchers',
-    label: 'Vouchers',
-    icon: IndianRupee,
-    iconColor: 'text-rose-500',
-    children: [
-      { id: 'expenses', label: 'Expenses' },
-      { id: 'payment', label: 'Payment' },
-      { id: 'receipt', label: 'Receipt' },
-    ]
-  },
-  { id: 'density', label: 'Density', icon: Droplets, iconColor: 'text-sky-500' },
+
+  // =========================================================================
+  // TEMPORARILY HIDDEN MODULES (Backend not yet applied)
+  // Kept for future use - uncomment whenever respective backend APIs are ready:
+  // - Vouchers (Expenses, Payment, Receipt)
+  // - Density
+  // - Templates
+  // - Sequences
+  // - Analytics
+  // - Payment Portal
+  // - Compliance
+  // - Settings
+  // =========================================================================
+  // {
+  //   id: 'vouchers',
+  //   label: 'Vouchers',
+  //   icon: IndianRupee,
+  //   iconColor: 'text-rose-500',
+  //   children: [
+  //     { id: 'expenses', label: 'Expenses' },
+  //     { id: 'payment', label: 'Payment' },
+  //     { id: 'receipt', label: 'Receipt' },
+  //   ]
+  // },
+  // { id: 'density', label: 'Density', icon: Droplets, iconColor: 'text-sky-500' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, iconColor: 'text-violet-500' },
-  { id: 'templates', label: 'Templates', icon: FileText, iconColor: 'text-cyan-500' },
-  { id: 'sequences', label: 'Sequences', icon: Workflow, iconColor: 'text-pink-500' },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3, iconColor: 'text-indigo-500' },
-  { id: 'payments', label: 'Payment Portal', icon: CreditCard, iconColor: 'text-emerald-500' },
-  { id: 'compliance', label: 'Compliance', icon: Shield, iconColor: 'text-amber-500' },
-  { id: 'settings', label: 'Settings', icon: Settings, iconColor: 'text-slate-500' },
+  // { id: 'templates', label: 'Templates', icon: FileText, iconColor: 'text-cyan-500' },
+  // { id: 'sequences', label: 'Sequences', icon: Workflow, iconColor: 'text-pink-500' },
+  // { id: 'analytics', label: 'Analytics', icon: BarChart3, iconColor: 'text-indigo-500' },
+  // { id: 'payments', label: 'Payment Portal', icon: CreditCard, iconColor: 'text-emerald-500' },
+  // { id: 'compliance', label: 'Compliance', icon: Shield, iconColor: 'text-amber-500' },
+  // { id: 'settings', label: 'Settings', icon: Settings, iconColor: 'text-slate-500' },
 ];
 
 export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [expandedItems, setExpandedItems] = useState<string[]>(['daily-operation']);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [showFuelRateDialog, setShowFuelRateDialog] = useState(false);
@@ -148,6 +168,14 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
   const [dipsLogData, setDipsLogData] = useState<any[]>([]);
   const [dipsLogFromDate, setDipsLogFromDate] = useState('');
   const [dipsLogToDate, setDipsLogToDate] = useState('');
+
+  // Auto-expand parent group of activeSection if it's a child
+  React.useEffect(() => {
+    const parent = navigationItems.find(item => item.children?.some(child => child.id === activeSection));
+    if (parent && !expandedItems.includes(parent.id)) {
+      setExpandedItems(prev => [...prev, parent.id]);
+    }
+  }, [activeSection]);
 
   // Fetch shifts from the database
   React.useEffect(() => {

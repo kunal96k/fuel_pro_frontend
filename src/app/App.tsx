@@ -53,7 +53,9 @@ const reportTitles: Record<string, string> = {
 import { Toaster } from './components/ui/sonner';
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState('dashboard');
+  // Default module on site open: 'employee-assign' (Daily Operation).
+  // Note: If you want to restore Dashboard in the future, change this back to 'dashboard'.
+  const [activeSection, setActiveSection] = useState('employee-assign');
 
   const renderContent = () => {
     // Check if it's Monthly/Yearly Summary Report
@@ -100,8 +102,8 @@ export default function App() {
         return <FuelPurchase />;
       case 'oil-purchase':
         return <OilPurchase />;
-      case 'tanker-load':
-        return <ImportWizard purchaseType={activeSection} />;
+      // case 'tanker-load': // Temporarily hidden (Backend not yet applied)
+      //   return <ImportWizard purchaseType={activeSection} />;
       case 'fuel-sale':
       case 'oil-sale':
         return <SalesWizard saleType={activeSection} />;
@@ -143,7 +145,8 @@ export default function App() {
       case 'settings':
         return <Settings />;
       default:
-        return <Dashboard />;
+        // Default fallback returns EmployeeAssign while Dashboard is temporarily hidden
+        return <EmployeeAssign />;
     }
   };
 
