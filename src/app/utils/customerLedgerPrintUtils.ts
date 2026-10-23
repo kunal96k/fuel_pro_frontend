@@ -50,7 +50,7 @@ const formatLitres = (val?: number | null): string => {
 /**
  * Generates and downloads a clean, styled Excel (.xls) statement for the customer ledger
  */
-export function exportCustomerLedgerToExcel(data: CustomerLedgerPrintData, stationName: string = 'PETROL PUMP & FUEL STATION') {
+export function exportCustomerLedgerToExcel(data: CustomerLedgerPrintData, stationName: string = 'FUEL STATION') {
   const fileName = `Customer_Ledger_${data.customerName.replace(/[^a-zA-Z0-9]/g, '_')}_${data.fromDate}_to_${data.toDate}`;
 
   const rowsHtml = (data.entries || []).map((row) => {
@@ -227,7 +227,7 @@ export function exportCustomerLedgerToCsv(data: CustomerLedgerPrintData) {
 /**
  * Opens a print window with official fuel station statement layout
  */
-export function printCustomerLedgerStatement(data: CustomerLedgerPrintData, stationName: string = 'PETROL PUMP & FUEL STATION') {
+export function printCustomerLedgerStatement(data: CustomerLedgerPrintData, stationName: string = 'FUEL STATION') {
   const grandClosingDrCr = data.closingBalance >= 0 ? `₹${formatCurrency(data.closingBalance)} Dr` : `₹${formatCurrency(Math.abs(data.closingBalance))} Cr`;
 
   const rowsHtml = (data.entries || []).map((row) => {

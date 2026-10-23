@@ -142,6 +142,7 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
   const [month, setMonth] = useState<string>('ALL');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // ── Server-Side Sorting & Pagination ──
@@ -212,10 +213,7 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
       const mTo = `${y}-${month}-${String(lastDay).padStart(2, '0')}`;
       return { effectiveFrom: mFrom, effectiveTo: mTo };
     }
-    // Default to full financial year
-    const fyFrom = `${startYear}-04-01`;
-    const fyTo = `${endYear}-03-31`;
-    return { effectiveFrom: fyFrom, effectiveTo: fyTo };
+    return { effectiveFrom: undefined, effectiveTo: undefined };
   }, [fromDate, toDate, month, fiscalYear]);
 
   // ── 2. Fetch Server-Side Overview Data (When No Customer Selected) ──
@@ -225,6 +223,7 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
     try {
       const res = await fetchCustomerLedgerOverviewApi({
         search: searchTerm || undefined,
+        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
         fromDate: effectiveFrom,
         toDate: effectiveTo,
         page: currentPage,
@@ -247,7 +246,7 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
     } finally {
       setLoading(false);
     }
-  }, [selectedCustomerId, searchTerm, effectiveFrom, effectiveTo, currentPage, pageSize, sortBy, sortDir]);
+  }, [selectedCustomerId, searchTerm, categoryFilter, effectiveFrom, effectiveTo, currentPage, pageSize, sortBy, sortDir]);
 
   // ── 3. Fetch Server-Side Customer Statement (When Customer Selected) ──
   const loadServerStatement = useCallback(async () => {
@@ -1001,8 +1000,32 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
             />
           </div>
 
+          {/* Party Activity / Category Filter */}
+          {!selectedCustomerId && (
+            <div className="w-48">
+              <Select
+                value={categoryFilter}
+                onValueChange={v => {
+                  setCategoryFilter(v);
+                  setCurrentPage(0);
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Party Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Active in Period</SelectItem>
+                  <SelectItem value="ALL_MASTERS">All 115 Master Parties</SelectItem>
+                  <SelectItem value="OUTSTANDING">Outstanding (&gt; ₹0)</SelectItem>
+                  <SelectItem value="ADVANCE">Advance (&lt; ₹0)</SelectItem>
+                  <SelectItem value="LIMIT_EXCEEDED">Limit Exceeded</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Reset Date Range Button */}
-          {(fromDate || toDate || selectedCustomerId || searchTerm || month !== 'ALL') && (
+          {(fromDate || toDate || selectedCustomerId || searchTerm || month !== 'ALL' || categoryFilter !== 'ALL') && (
             <Button
               type="button"
               variant="ghost"
@@ -1011,6 +1034,7 @@ export function CustomerLedger({ onBack }: CustomerLedgerProps) {
                 setFromDate('');
                 setToDate('');
                 setMonth('ALL');
+                setCategoryFilter('ALL');
                 setSearchTerm('');
                 setVehicleSearch('');
                 setCurrentPage(0);
