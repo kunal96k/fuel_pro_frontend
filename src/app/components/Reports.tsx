@@ -37,6 +37,13 @@ const reportCategories = [
     icon: TrendingDown,
     color: 'orange'
   },
+  {
+    id: 'customer-ledger',
+    title: 'Customer Ledger',
+    description: 'Account-wise transaction history and balances',
+    icon: BookOpen,
+    color: 'indigo'
+  },
 
   // =========================================================================
   // TEMPORARILY HIDDEN REPORTS (Backend not yet applied)
@@ -46,7 +53,6 @@ const reportCategories = [
   // - Own Usage Report
   // - Cash Shortage Report
   // - Stock Report
-  // - Ledger Statement
   // - Dispensing Unit/Nozzle Sale
   // - Employee Performance
   // - Integrated Multi-Outlet Report
@@ -88,13 +94,6 @@ const reportCategories = [
   //   description: 'Current inventory levels and stock movements',
   //   icon: Package,
   //   color: 'amber'
-  // },
-  // {
-  //   id: 'ledger-statement',
-  //   title: 'Ledger Statement',
-  //   description: 'Account-wise transaction history and balances',
-  //   icon: BookOpen,
-  //   color: 'indigo'
   // },
   // {
   //   id: 'dispensing-unit-sale',
