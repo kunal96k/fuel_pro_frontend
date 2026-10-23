@@ -32,6 +32,7 @@ import { FuelPurchase } from './components/FuelPurchase';
 import { OilPurchase } from './components/OilPurchase';
 import { MonthlyYearlySummaryReport } from './components/MonthlyYearlySummaryReport';
 import { DailySalesReport } from './components/DailySalesReport';
+import { CustomerLedger } from './components/CustomerLedger';
 
 const reportTitles: Record<string, string> = {
   'daily-shift-report': 'Daily Shift Report',
@@ -67,6 +68,11 @@ export default function App() {
     // Check if it's Daily Sales Report (DSR)
     if (activeSection === 'daily-sales-report') {
       return <DailySalesReport onBack={() => setActiveSection('reports')} />;
+    }
+
+    // Check if it's Customer Ledger Report
+    if (activeSection === 'customer-ledger') {
+      return <CustomerLedger onBack={() => setActiveSection('reports')} />;
     }
 
     // Check if it's a specific report

@@ -25,7 +25,10 @@ import {
   CalendarDays,
   Coins,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from 'lucide-react';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -251,10 +254,7 @@ export function CashCollection({
     try {
       let activeFromDate = fromDateFilter;
       let activeToDate = toDateFilter;
-      if (scopeMode === 'overall') {
-        activeFromDate = '';
-        activeToDate = '';
-      } else if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
         if (!fromDateFilter && !toDateFilter && selectedDate) {
           activeFromDate = selectedDate;
           activeToDate = selectedDate;
@@ -284,6 +284,16 @@ export function CashCollection({
             : true;
           return mpdOk && shiftOk;
         });
+
+        // Ensure date & time sorting consistency in embedded mode
+        if (sortBy === 'date') {
+          filtered.sort((a, b) => {
+            const dateCmp = (a.date || '').localeCompare(b.date || '');
+            if (dateCmp !== 0) return sortDir === 'desc' ? -dateCmp : dateCmp;
+            const timeCmp = (a.depositTime || '').localeCompare(b.depositTime || '');
+            return sortDir === 'desc' ? -timeCmp : timeCmp;
+          });
+        }
 
         filteredContent = filtered;
       }
@@ -1023,6 +1033,26 @@ export function CashCollection({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Clear Filters Button */}
+            {(fromDateFilter || toDateFilter || searchTerm || shiftFilter !== 'ALL') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setFromDateFilter('');
+                  setToDateFilter('');
+                  setSearchTerm('');
+                  setShiftFilter('ALL');
+                  setCurrentPage(0);
+                }}
+                className="h-9 text-xs text-muted-foreground hover:text-foreground gap-1 px-2.5"
+                title="Clear all filters"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -1105,10 +1135,23 @@ export function CashCollection({
                     </th>
                   )}
                   <th className="w-16 text-left p-4 font-medium">S.No</th>
-                  <th className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors" onClick={() => handleSortToggle('date')}>
+                  <th 
+                    className="text-left p-4 font-medium cursor-pointer hover:bg-muted/80 transition-colors select-none" 
+                    onClick={() => handleSortToggle('date')}
+                    title="Click to sort by Date & Time"
+                  >
                     <div className="flex items-center gap-1.5">
-                      Date & Time
+                      Date &amp; Time
                       <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                      {sortBy === 'date' ? (
+                        sortDir === 'desc' ? (
+                          <ArrowDown className="w-3.5 h-3.5 text-primary" />
+                        ) : (
+                          <ArrowUp className="w-3.5 h-3.5 text-primary" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/40" />
+                      )}
                     </div>
                   </th>
                   <th className="text-left p-4 font-medium">Shift</th>

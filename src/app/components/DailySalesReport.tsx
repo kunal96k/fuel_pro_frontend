@@ -417,12 +417,27 @@ export function DailySalesReport({ onBack }: DailySalesReportProps) {
     return total;
   }, [filteredRecords, connectedNozzles, isDieselTank]);
 
-  // ── Pagination Slice ──
+  // ── Pagination Slice & Smart Page Window (1, 2, 3, ... 5) ──
   const totalPages = Math.ceil(filteredRecords.length / pageSize) || 1;
   const paginatedRecords = useMemo(() => {
     const start = currentPage * pageSize;
     return filteredRecords.slice(start, start + pageSize);
   }, [filteredRecords, currentPage, pageSize]);
+
+  const getPageNumbers = (current0: number, total: number): (string | number)[] => {
+    if (total <= 1) return [1];
+    if (total <= 4) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const current = current0 + 1; // 1-indexed (1 to total)
+    if (current <= 3) {
+      return [1, 2, 3, '...', total];
+    }
+    if (current >= total - 2) {
+      return [1, '...', total - 2, total - 1, total];
+    }
+    return [1, '...', current - 1, current, current + 1, '...', total];
+  };
 
   // ── Sorting Toggle ──
   const handleSort = (field: string) => {
@@ -1199,17 +1214,30 @@ export function DailySalesReport({ onBack }: DailySalesReportProps) {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
 
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <Button
-                  key={i}
-                  variant={currentPage === i ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setCurrentPage(i)}
-                  className={`h-8 w-8 p-0 text-xs ${currentPage === i ? 'bg-primary text-primary-foreground' : ''}`}
-                >
-                  {i + 1}
-                </Button>
-              ))}
+              {getPageNumbers(currentPage, totalPages).map((p, i) =>
+                p === '...' ? (
+                  <span
+                    key={`dots-${i}`}
+                    className="w-8 h-8 flex items-center justify-center text-xs text-muted-foreground select-none font-bold"
+                  >
+                    …
+                  </span>
+                ) : (
+                  <Button
+                    key={`page-${p}-${i}`}
+                    variant={currentPage === Number(p) - 1 ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCurrentPage(Number(p) - 1)}
+                    className={`h-8 w-8 p-0 text-xs font-semibold ${
+                      currentPage === Number(p) - 1
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    {p}
+                  </Button>
+                )
+              )}
 
               <Button
                 variant="outline"

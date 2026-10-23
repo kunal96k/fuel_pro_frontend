@@ -299,10 +299,7 @@ export function CreditSales({
     try {
       let activeFromDate = fromDateFilter;
       let activeToDate = toDateFilter;
-      if (scopeMode === 'overall') {
-        activeFromDate = '';
-        activeToDate = '';
-      } else if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
+      if (isEmbedded || scopeMode === 'shift' || scopeMode === 'day') {
         if (!fromDateFilter && !toDateFilter && selectedDate) {
           activeFromDate = selectedDate;
           activeToDate = selectedDate;

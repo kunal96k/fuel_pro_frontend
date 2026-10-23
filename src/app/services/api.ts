@@ -2440,3 +2440,198 @@ export async function fetchDsrReportApi(params: {
   return await res.json();
 }
 
+// ==========================================
+// CUSTOMER LEDGER API (Server-Side Pagination & JPA Specs)
+// ==========================================
+
+export interface CustomerLedgerSummaryDto {
+  id: number;
+  customerCode: string;
+  customerName: string;
+  contactPerson?: string;
+  mobileNo?: string;
+  city?: string;
+  gstNo?: string;
+  panNo?: string;
+  creditLimit: number;
+  creditPeriod: number;
+  vehicleCount: number;
+  openingBalance: number;
+  totalSales: number;
+  totalPaid: number;
+  totalLitres: number;
+  netBalance: number;
+  isLimitExceeded: boolean;
+  status: string;
+}
+
+export interface CustomerLedgerGlobalKpiDto {
+  totalOpeningBalance?: number;
+  totalSales: number;
+  totalPaid: number;
+  totalOutstanding: number;
+  totalLitres: number;
+  limitExceededCount: number;
+  totalCustomers: number;
+}
+
+export interface CustomerLedgerOverviewResponse {
+  page: PaginatedResponse<CustomerLedgerSummaryDto>;
+  kpis: CustomerLedgerGlobalKpiDto;
+}
+
+export interface LedgerTransactionDto {
+  id: string;
+  date: string;
+  time?: string;
+  particulars: string;
+  slipNo: string;
+  voucherNo: string;
+  vehicleNo: string;
+  productCategory: string;
+  productName: string;
+  quantity?: number;
+  rate?: number;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  type: 'OPENING_BALANCE' | 'CREDIT_SALE' | 'PAYMENT' | 'CLOSING_BALANCE';
+  mode?: string;
+}
+
+export interface CustomerLedgerStatementResponseDto {
+  customer: Customer;
+  fromDate?: string;
+  toDate?: string;
+  fiscalYear: string;
+  openingBalance: number;
+  periodDebit: number;
+  periodCredit: number;
+  periodLitres: number;
+  closingBalance: number;
+  transactions: PaginatedResponse<LedgerTransactionDto>;
+}
+
+export interface CustomerPayment {
+  id?: number;
+  date: string;
+  customerId?: number;
+  customerCode?: string;
+  customerName: string;
+  amount: number;
+  paymentMode: string;
+  referenceNo?: string;
+  voucherNo?: string;
+  bankName?: string;
+  narration?: string;
+  createdAt?: string;
+}
+
+export async function fetchCustomerLedgerOverviewApi(params: {
+  search?: string;
+  category?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+} = {}): Promise<CustomerLedgerOverviewResponse> {
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.category && params.category !== 'ALL') query.set('category', params.category);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/customer-ledger/overview?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch customer ledger overview: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function fetchCustomerLedgerStatementApi(
+  customerId: string | number,
+  params: {
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+  } = {}
+): Promise<CustomerLedgerStatementResponseDto> {
+  const query = new URLSearchParams();
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.search) query.set('search', params.search);
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/customer-ledger/statement/${customerId}?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch customer statement: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function createCustomerPaymentApi(payment: CustomerPayment): Promise<CustomerPayment> {
+  const res = await fetch(`${API_BASE_URL}/customer-ledger/payments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payment),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to record customer payment: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function fetchCustomerPaymentsApi(params: {
+  customerId?: number | string;
+  customerName?: string;
+  search?: string;
+  mode?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+} = {}): Promise<PaginatedResponse<CustomerPayment>> {
+  const query = new URLSearchParams();
+  if (params.customerId !== undefined) query.set('customerId', String(params.customerId));
+  if (params.customerName) query.set('customerName', params.customerName);
+  if (params.search) query.set('search', params.search);
+  if (params.mode && params.mode !== 'ALL') query.set('mode', params.mode);
+  if (params.fromDate) query.set('fromDate', params.fromDate);
+  if (params.toDate) query.set('toDate', params.toDate);
+  if (params.page !== undefined) query.set('page', String(params.page));
+  if (params.size !== undefined) query.set('size', String(params.size));
+  if (params.sortBy) query.set('sortBy', params.sortBy);
+  if (params.sortDir) query.set('sortDir', params.sortDir);
+
+  const res = await fetch(`${API_BASE_URL}/customer-ledger/payments?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch customer payments: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function deleteCustomerPaymentApi(id: number | string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/customer-ledger/payments/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete payment: ${res.statusText}`);
+  }
+}
+
+
