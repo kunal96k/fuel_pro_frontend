@@ -1108,13 +1108,13 @@ export function FuelPurchase() {
       ════════════════════════════════════════════════════ */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
         <DialogContent
-          className="flex flex-col overflow-hidden p-0 max-w-5xl sm:max-w-5xl"
-          style={{ maxWidth: '1100px', width: '95vw', maxHeight: '92vh' }}
+          className="fixed inset-0 top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen max-w-none sm:max-w-none max-h-none rounded-none border-0 p-0 gap-0 flex flex-col overflow-hidden bg-background"
+          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh', margin: 0, borderRadius: 0 }}
         >
           {/* Modal Header */}
-          <DialogHeader className="px-5 py-3.5 border-b border-border shrink-0">
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0 bg-background pr-14">
             <div className="flex items-center justify-between w-full">
-              <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
                 <Fuel className="w-5 h-5 text-primary" />
                 {modalMode === 'add'
                   ? 'New Fuel Purchase'
@@ -1130,7 +1130,8 @@ export function FuelPurchase() {
 
           {/* Modal Body */}
           <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col overflow-hidden">
-            <div className="overflow-y-auto flex-1 p-4 space-y-3.5">
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="max-w-7xl mx-auto space-y-4 w-full">
               
               {/* ─────────────────────────────────
                   SECTION 1: VOUCHER & INVOICE INFORMATION
@@ -1422,7 +1423,7 @@ export function FuelPurchase() {
                   <Tag className="w-3.5 h-3.5 text-primary" />
                   3. Charges &amp; Taxes (VAT / Non-GST)
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs font-medium">Taxable Charges (₹)</Label>
                     <Input
@@ -1545,38 +1546,41 @@ export function FuelPurchase() {
                 />
               </div>
 
+              </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-3 border-t border-border shrink-0 bg-muted/20">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowModal(false)}
-              >
-                {isView ? 'Close' : 'Cancel'}
-              </Button>
-              {!isView && (
+            <div className="flex items-center justify-end gap-3 px-6 py-3.5 border-t border-border shrink-0 bg-muted/20">
+              <div className="max-w-7xl mx-auto w-full flex items-center justify-end gap-3">
                 <Button
-                  type="submit"
+                  type="button"
+                  variant="outline"
                   size="sm"
-                  disabled={isSubmitting || Boolean(invoiceExistsError)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2 min-w-[120px]"
+                  onClick={() => setShowModal(false)}
                 >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      {modalMode === 'add' ? 'Save Purchase' : 'Save Changes'}
-                    </>
-                  )}
+                  {isView ? 'Close' : 'Cancel'}
                 </Button>
-              )}
+                {!isView && (
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSubmitting || Boolean(invoiceExistsError)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white gap-2 min-w-[120px]"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        {modalMode === 'add' ? 'Save Purchase' : 'Save Changes'}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </form>
         </DialogContent>

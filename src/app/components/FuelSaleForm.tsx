@@ -3490,17 +3490,21 @@ function OilSaleTab() {
 
       {/* New / Edit Invoice Form Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="sm:max-w-6xl w-[95vw] max-h-[90vh] overflow-y-auto flex flex-col p-6">
-          <DialogHeader>
-            <DialogTitle>{editingRecordId ? 'Edit Oil & Lubricant Invoice' : 'New Oil & Lubricant Invoice'}</DialogTitle>
-            <DialogDescription>
+        <DialogContent
+          className="fixed inset-0 top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen max-w-none sm:max-w-none max-h-none rounded-none border-0 p-0 gap-0 flex flex-col overflow-hidden bg-background"
+          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh', margin: 0, borderRadius: 0 }}
+        >
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0 bg-background pr-14">
+            <DialogTitle className="text-lg font-bold">{editingRecordId ? 'Edit Oil & Lubricant Invoice' : 'New Oil & Lubricant Invoice'}</DialogTitle>
+            <DialogDescription className="text-muted-foreground text-xs mt-0.5">
               {editingRecordId
                 ? `Update details of tax invoice ${form.invoiceNumber}`
                 : 'Create a GST-compliant tax invoice as per Indian government norms.'}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-5 py-1 px-1">
+          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            <div className="max-w-7xl mx-auto space-y-5 w-full">
             {/* Invoice Header */}
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -3753,11 +3757,14 @@ function OilSaleTab() {
                 <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={5} placeholder="Additional notes for this invoice..." className="text-xs" />
               </div>
             </div>
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 border-t pt-4 mt-2 shrink-0">
-            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleSave}><Check className="h-4 w-4 mr-1" />{editingRecordId ? 'Update Invoice' : 'Save Invoice'}</Button>
+          <DialogFooter className="gap-2 border-t px-6 py-3.5 shrink-0 bg-muted/20">
+            <div className="max-w-7xl mx-auto w-full flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button onClick={handleSave}><Check className="h-4 w-4 mr-1" />{editingRecordId ? 'Update Invoice' : 'Save Invoice'}</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3765,11 +3772,14 @@ function OilSaleTab() {
       {/* View Invoice Dialog */}
       {viewRecord && (
         <Dialog open={!!viewRecord} onOpenChange={() => setViewRecord(null)}>
-          <DialogContent className="sm:max-w-6xl w-[95vw] max-h-[90vh] overflow-y-auto flex flex-col p-6">
-            <DialogHeader>
-              <div className="flex items-start justify-between">
+          <DialogContent
+            className="fixed inset-0 top-0 left-0 translate-x-0 translate-y-0 w-screen h-screen max-w-none sm:max-w-none max-h-none rounded-none border-0 p-0 gap-0 flex flex-col overflow-hidden bg-background"
+            style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh', margin: 0, borderRadius: 0 }}
+          >
+            <DialogHeader className="px-6 py-4 border-b border-border shrink-0 bg-background pr-14">
+              <div className="flex items-start justify-between w-full">
                 <div>
-                  <DialogTitle className="text-lg">Tax Invoice — {viewRecord.invoiceNumber}</DialogTitle>
+                  <DialogTitle className="text-lg font-bold">Tax Invoice — {viewRecord.invoiceNumber}</DialogTitle>
                   <p className="text-sm text-muted-foreground mt-0.5">Voucher: {viewRecord.voucherNumber}</p>
                 </div>
                 <div className="flex gap-2 mr-6">
@@ -3783,7 +3793,8 @@ function OilSaleTab() {
               </div>
             </DialogHeader>
 
-            <div className="flex-1 overflow-y-auto space-y-4 py-2 px-1">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="max-w-7xl mx-auto space-y-4 w-full">
               {/* Meta */}
               <div className="grid grid-cols-4 gap-3 text-sm">
                 {[
@@ -3943,6 +3954,7 @@ function OilSaleTab() {
                     </div>
                   )}
                 </div>
+              </div>
               </div>
             </div>
           </DialogContent>
